@@ -27,4 +27,3 @@ def test_probe_cli_requires_explicit_runtime_gate_before_loading_audio(
     captured = capsys.readouterr()
     assert exit_code == 1
     assert "MIRRORNOTE_RUN_PYANNOTE_PROBE=1" in captured.err
-
