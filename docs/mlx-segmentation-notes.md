@@ -13,9 +13,23 @@ This document records facts discovered while implementing M4A segmentation parit
 
 ## Probe Results
 
-No probe has been run yet.
+The committed PyanNet contract comes from the dummy-audio oracle probe at `artifacts/audio/librispeech-dummy-probe/audio.wav`.
+The generated tensor artifacts stay under ignored `artifacts/` paths. A MirrorNote-style fixture snapshot remains future work.
 
-The first real probe should add a generated JSON artifact under `artifacts/` or `reports/segmentation-parity/`. Do not inline large tensor values in this document.
+Summary:
+
+- modelClass: `pyannote.audio.models.segmentation.PyanNet.PyanNet`
+- sampleRate: `16000`
+- chunkDurationSeconds: `10.0`
+- outputShape: `[1, 589, 7]`
+- moduleCount: `22`
+- parameterCount: `1473515`
+
+The first MLX target is the segmentation submodel only:
+
+```text
+SincNet frontend -> 4-layer bidirectional LSTM -> Linear(256, 128) -> Linear(128, 128) -> Classifier(128, 7) -> activation
+```
 
 ## Reference Snapshot Procedure
 
@@ -43,13 +57,27 @@ Do not commit large tensor artifacts from `artifacts/`. A small JSON summary und
 
 ## Weight Mapping Decisions
 
-No architecture-specific mapping has been accepted yet.
+Accepted mapping namespace:
 
-The first accepted mapping must be strict: every required reference weight maps to one candidate parameter with the same shape.
+- PyTorch `sincnet.wav_norm1d.*` maps to MLX `sincnet.wav_norm.*`.
+- PyTorch `sincnet.conv1d.0.filterbank.*_` maps to MLX `sincnet.sinc_filterbank.*` without trailing underscore.
+- PyTorch `sincnet.conv1d.1.*` and `sincnet.conv1d.2.*` map to MLX `sincnet.conv.layers.1.*` and `sincnet.conv.layers.2.*`.
+- PyTorch `sincnet.norm1d.N.*` maps to MLX `sincnet.norm.layers.N.*`.
+- PyTorch bidirectional LSTM keys map to `lstm.layers.{index}.{forward|reverse}.{weight_ih|weight_hh|bias_ih|bias_hh}`.
+- PyTorch `linear.N.*` maps to MLX `linear.layers.N.*`.
+- PyTorch `classifier.*` maps to MLX `classifier.*`.
+
+The mapping is strict: every expected reference key must exist and match the observed shape before candidate execution is allowed.
 
 ## Unsupported Operations
 
-No unsupported MLX operations confirmed yet.
+The executable MLX candidate path exists, but numerical parity is not complete until these components are implemented and verified independently:
+
+- SincNet waveform normalization, sinc filterbank construction, convolution, pooling, and normalization.
+- Four-layer bidirectional LSTM gate math with PyTorch-compatible gate ordering.
+- Final activation behavior after classifier output.
+
+The next plan should target SincNet first because it determines the LSTM input shape `[batch, frames, 60]`. The following plan should target the bidirectional LSTM stack using a saved SincNet output fixture.
 
 ## Threshold Changes
 

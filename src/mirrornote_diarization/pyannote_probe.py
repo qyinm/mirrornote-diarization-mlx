@@ -63,6 +63,7 @@ def write_probe_artifacts(
     metadata: PyannoteProbeMetadata,
     reference_output: np.ndarray,
     out_dir: str | Path,
+    reference_weights: Mapping[str, Any] | None = None,
 ) -> None:
     """Write probe metadata and float32 reference output artifacts."""
     output_dir = Path(out_dir)
@@ -75,6 +76,13 @@ def write_probe_artifacts(
 
     output = np.asarray(reference_output, dtype=np.float32)
     np.savez(output_dir / "reference-output.npz", output=output)
+
+    if reference_weights is not None:
+        weights = {
+            name: _reference_weight_to_float32_array(value)
+            for name, value in reference_weights.items()
+        }
+        np.savez(output_dir / "reference-weights.npz", **weights)
 
 
 def run_pyannote_probe(audio_chunk: Any, out_dir: str | Path) -> PyannoteProbeMetadata:
@@ -141,7 +149,7 @@ def run_pyannote_probe(audio_chunk: Any, out_dir: str | Path) -> PyannoteProbeMe
         parameter_count=parameter_count,
         output_shape=list(output_array.shape),
     )
-    write_probe_artifacts(metadata, output_array, out_dir)
+    write_probe_artifacts(metadata, output_array, out_dir, reference_weights=state_dict)
     return metadata
 
 
@@ -167,6 +175,19 @@ def _to_float32_numpy(output: Any, torch: Any) -> np.ndarray:
     if isinstance(output, torch.Tensor):
         output = output.detach().cpu().numpy()
     return np.asarray(output, dtype=np.float32)
+
+
+def _reference_weight_to_float32_array(value: Any) -> np.ndarray:
+    detach = getattr(value, "detach", None)
+    if callable(detach):
+        value = detach()
+    cpu = getattr(value, "cpu", None)
+    if callable(cpu):
+        value = cpu()
+    numpy = getattr(value, "numpy", None)
+    if callable(numpy):
+        value = numpy()
+    return np.asarray(value, dtype=np.float32)
 
 
 def _duration_seconds(value: Any, fallback: float) -> float:

@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import sys
+from zipfile import BadZipFile
 
 import numpy as np
 
@@ -23,6 +24,7 @@ from mirrornote_diarization.pyannote_probe import (
     require_pyannote_enabled,
     run_pyannote_probe,
 )
+from mirrornote_diarization.weight_conversion import load_npz_weights
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -64,6 +66,13 @@ def build_parser() -> argparse.ArgumentParser:
     compare_npz_parser.add_argument("--source", required=True)
     compare_npz_parser.add_argument("--out", type=Path, required=True)
 
+    mlx_candidate_parser = segmentation_subparsers.add_parser(
+        "mlx-candidate", help="Run the MLX segmentation candidate on saved waveform npz"
+    )
+    mlx_candidate_parser.add_argument("--weights", type=Path, required=True)
+    mlx_candidate_parser.add_argument("--waveform-npz", type=Path, required=True)
+    mlx_candidate_parser.add_argument("--out", type=Path, required=True)
+
     return parser
 
 
@@ -86,6 +95,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return _inspect_probe(args)
             if args.segmentation_command == "compare-npz":
                 return _compare_npz(args)
+            if args.segmentation_command == "mlx-candidate":
+                return _mlx_candidate(args)
             parser.error("unsupported segmentation command")
 
         parser.error("unsupported command")
@@ -194,6 +205,24 @@ def _compare_npz(args: argparse.Namespace) -> int:
     return 0 if report.passed else 1
 
 
+def _mlx_candidate(args: argparse.Namespace) -> int:
+    try:
+        from mirrornote_diarization.mlx_pyannet import MlxPyanNetSegmentation
+
+        weights = load_npz_weights(args.weights)
+        waveform = _load_npz_waveform(args.waveform_npz)
+        model = MlxPyanNetSegmentation.from_reference_weights(weights)
+
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        model.write_candidate_npz(waveform, args.out)
+    except (OSError, KeyError, ValueError, ImportError, BadZipFile) as exc:
+        print(f"MLX segmentation candidate failed: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"wrote MLX segmentation candidate: {args.out}")
+    return 0
+
+
 def _build_npz_parity_report(
     reference: np.ndarray,
     candidate: np.ndarray,
@@ -253,6 +282,16 @@ def _load_npz_output(npz_path: Path, label: str) -> np.ndarray:
             return np.asarray(payload["output"])
     except OSError as exc:
         raise OSError(f"could not read {label} npz: {npz_path}: {exc}") from exc
+
+
+def _load_npz_waveform(npz_path: Path) -> np.ndarray:
+    try:
+        with np.load(npz_path) as payload:
+            if "waveform" not in payload:
+                raise KeyError(f"waveform npz missing required 'waveform' array: {npz_path}")
+            return np.asarray(payload["waveform"], dtype=np.float32)
+    except OSError as exc:
+        raise OSError(f"could not read waveform npz: {npz_path}: {exc}") from exc
 
 
 def _clamp_cosine_similarity(value: float) -> float:
