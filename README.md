@@ -80,3 +80,43 @@ uv run mirrornote-diarize segmentation inspect-probe artifacts/probe --json-out 
 ```
 
 The probe command is registered, but it is intentionally gated by `MIRRORNOTE_RUN_PYANNOTE_PROBE=1` and `HUGGINGFACE_ACCESS_TOKEN`. Generated probe artifacts should not be committed unless they are small, deterministic metadata files.
+
+## M4C MLX Candidate Path
+
+Generate a local waveform input artifact from the dummy probe audio when needed:
+
+```bash
+uv run --extra audio python - <<'PY'
+from pathlib import Path
+import numpy as np
+import soundfile as sf
+from mirrornote_diarization.chunking import extract_fixed_chunk
+waveform, sample_rate = sf.read('artifacts/audio/librispeech-dummy-probe/audio.wav', dtype='float32')
+chunk = extract_fixed_chunk(waveform, sample_rate=sample_rate, start_seconds=0.0, duration_seconds=10.0)
+path = Path('artifacts/probe/librispeech-dummy-probe/waveform-input.npz')
+path.parent.mkdir(parents=True, exist_ok=True)
+np.savez(path, waveform=chunk.as_model_input())
+print(path)
+PY
+```
+
+Run the current MLX segmentation candidate:
+
+```bash
+uv run --extra mlx mirrornote-diarize segmentation mlx-candidate \
+  --weights artifacts/probe/librispeech-dummy-probe/reference-weights.npz \
+  --waveform-npz artifacts/probe/librispeech-dummy-probe/waveform-input.npz \
+  --out artifacts/probe/librispeech-dummy-probe/mlx-candidate-output.npz
+```
+
+Compare the candidate against the reference output:
+
+```bash
+uv run --extra dev mirrornote-diarize segmentation compare-npz \
+  --reference artifacts/probe/librispeech-dummy-probe/reference-output.npz \
+  --candidate artifacts/probe/librispeech-dummy-probe/mlx-candidate-output.npz \
+  --source artifacts/audio/librispeech-dummy-probe/audio.wav \
+  --out reports/segmentation-parity/librispeech-dummy-mlx-compare.json
+```
+
+The current candidate is shape-correct only. `compare-npz` is expected to write a report and return nonzero until numerical parity work lands.
