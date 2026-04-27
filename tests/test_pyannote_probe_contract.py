@@ -18,6 +18,8 @@ def test_probe_metadata_to_dict_uses_public_camel_case_contract() -> None:
         frame_resolution_seconds=0.016875,
         module_tree=["model", "model.sincnet", "model.lstm"],
         weight_shapes={"model.lstm.weight_ih_l0": [512, 60]},
+        weight_dtypes={"model.lstm.weight_ih_l0": "float32"},
+        parameter_count=30720,
         output_shape=[1, 589, 3],
     )
 
@@ -28,8 +30,29 @@ def test_probe_metadata_to_dict_uses_public_camel_case_contract() -> None:
         "frameResolutionSeconds": 0.016875,
         "moduleTree": ["model", "model.sincnet", "model.lstm"],
         "weightShapes": {"model.lstm.weight_ih_l0": [512, 60]},
+        "weightDtypes": {"model.lstm.weight_ih_l0": "float32"},
+        "parameterCount": 30720,
         "outputShape": [1, 589, 3],
     }
+
+
+def test_probe_metadata_includes_weight_dtype_and_parameter_count() -> None:
+    metadata = PyannoteProbeMetadata(
+        model_class="FakeSegmentationModel",
+        sample_rate=16000,
+        chunk_duration_seconds=10.0,
+        frame_resolution_seconds=0.016875,
+        module_tree=["model", "model.encoder"],
+        weight_shapes={"encoder.weight": [2, 3]},
+        weight_dtypes={"encoder.weight": "float32"},
+        parameter_count=6,
+        output_shape=[1, 589, 7],
+    )
+
+    payload = metadata.to_dict()
+
+    assert payload["weightDtypes"] == {"encoder.weight": "float32"}
+    assert payload["parameterCount"] == 6
 
 
 def test_require_pyannote_enabled_requires_runtime_flag() -> None:
@@ -60,6 +83,8 @@ def test_write_probe_artifacts_writes_metadata_and_float32_reference_output(tmp_
         frame_resolution_seconds=0.016875,
         module_tree=["model"],
         weight_shapes={"model.weight": [2, 2]},
+        weight_dtypes={"model.weight": "float32"},
+        parameter_count=4,
         output_shape=[1, 2, 2],
     )
     reference_output = np.array([[[1.0, 2.0], [3.0, 4.0]]], dtype=np.float64)

@@ -14,6 +14,8 @@ def _write_fake_probe(probe_dir):
         frame_resolution_seconds=0.016875,
         module_tree=["<root>", "encoder", "classifier"],
         weight_shapes={"encoder.weight": [2, 3], "classifier.bias": [7]},
+        weight_dtypes={"encoder.weight": "float32", "classifier.bias": "float32"},
+        parameter_count=13,
         output_shape=[1, 999, 99],
     )
     reference_output = np.zeros((1, 589, 7), dtype=np.float64)

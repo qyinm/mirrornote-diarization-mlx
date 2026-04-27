@@ -30,6 +30,28 @@ def test_load_probe_artifacts_reads_metadata_and_reference_output(tmp_path):
     assert artifacts.module_count == 3
 
 
+def test_load_probe_artifacts_prefers_metadata_parameter_count(tmp_path):
+    probe_dir = tmp_path / "probe"
+    probe_dir.mkdir()
+    metadata = {
+        "modelClass": "FakeSegmentationModel",
+        "sampleRate": 16000,
+        "chunkDurationSeconds": 10.0,
+        "frameResolutionSeconds": 0.016875,
+        "moduleTree": ["<root>", "encoder"],
+        "weightShapes": {"encoder.weight": [2, 3]},
+        "weightDtypes": {"encoder.weight": "float32"},
+        "parameterCount": 123,
+        "outputShape": [1, 589, 7],
+    }
+    (probe_dir / "metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
+    np.savez(probe_dir / "reference-output.npz", output=np.zeros((1, 589, 7), dtype=np.float32))
+
+    artifacts = load_probe_artifacts(probe_dir)
+
+    assert artifacts.parameter_count == 123
+
+
 def test_load_probe_artifacts_rejects_missing_metadata(tmp_path):
     probe_dir = tmp_path / "probe"
     probe_dir.mkdir()

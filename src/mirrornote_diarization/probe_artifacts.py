@@ -19,6 +19,14 @@ class ProbeArtifacts:
 
     @property
     def parameter_count(self) -> int:
+        metadata_count = self.metadata.get("parameterCount")
+        if (
+            not isinstance(metadata_count, bool)
+            and isinstance(metadata_count, int)
+            and metadata_count >= 0
+        ):
+            return metadata_count
+
         total = 0
         for shape in self.metadata.get("weightShapes", {}).values():
             product = 1

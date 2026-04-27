@@ -22,6 +22,8 @@ class PyannoteProbeMetadata:
     frame_resolution_seconds: float
     module_tree: Sequence[str]
     weight_shapes: Mapping[str, Sequence[int]]
+    weight_dtypes: dict[str, str]
+    parameter_count: int
     output_shape: Sequence[int]
 
     def to_dict(self) -> dict[str, Any]:
@@ -35,6 +37,8 @@ class PyannoteProbeMetadata:
             "weightShapes": {
                 name: list(shape) for name, shape in self.weight_shapes.items()
             },
+            "weightDtypes": dict(self.weight_dtypes),
+            "parameterCount": self.parameter_count,
             "outputShape": list(self.output_shape),
         }
 
@@ -93,7 +97,12 @@ def run_pyannote_probe(audio_chunk: Any, out_dir: str | Path) -> PyannoteProbeMe
 
     model = getattr(segmentation, "model", segmentation)
     module_tree = _module_tree(model)
-    weight_shapes = _weight_shapes(model)
+    state_dict = _state_dict(model)
+    weight_shapes = _weight_shapes(state_dict)
+    weight_dtypes = {
+        key: str(value.dtype).replace("torch.", "") for key, value in state_dict.items()
+    }
+    parameter_count = sum(int(value.numel()) for value in state_dict.values())
 
     chunk_array = np.asarray(audio_chunk, dtype=np.float32)
     tensor = torch.from_numpy(chunk_array.astype(np.float32, copy=False))
@@ -124,6 +133,8 @@ def run_pyannote_probe(audio_chunk: Any, out_dir: str | Path) -> PyannoteProbeMe
         frame_resolution_seconds=frame_resolution,
         module_tree=module_tree,
         weight_shapes=weight_shapes,
+        weight_dtypes=weight_dtypes,
+        parameter_count=parameter_count,
         output_shape=list(output_array.shape),
     )
     write_probe_artifacts(metadata, output_array, out_dir)
@@ -137,11 +148,15 @@ def _module_tree(model: Any) -> list[str]:
     return ["model" if name == "" else f"model.{name}" for name, _ in named_modules()]
 
 
-def _weight_shapes(model: Any) -> dict[str, list[int]]:
+def _state_dict(model: Any) -> Mapping[str, Any]:
     state_dict = getattr(model, "state_dict", None)
     if state_dict is None:
         return {}
-    return {name: list(value.shape) for name, value in state_dict().items()}
+    return state_dict()
+
+
+def _weight_shapes(state_dict: Mapping[str, Any]) -> dict[str, list[int]]:
+    return {name: list(value.shape) for name, value in state_dict.items()}
 
 
 def _to_float32_numpy(output: Any, torch: Any) -> np.ndarray:
