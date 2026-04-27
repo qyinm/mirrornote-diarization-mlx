@@ -23,6 +23,28 @@ def test_compute_metrics_for_identical_arrays_passes() -> None:
     assert metrics.passed is True
 
 
+def test_compute_metrics_for_both_zero_arrays_passes_with_cosine_one() -> None:
+    reference = np.zeros((1, 3), dtype=np.float32)
+    candidate = np.zeros((1, 3), dtype=np.float32)
+
+    metrics = compute_metrics(reference, candidate, DEFAULT_THRESHOLDS)
+
+    assert metrics.mean_abs_error == 0.0
+    assert metrics.max_abs_error == 0.0
+    assert metrics.cosine_similarity == 1.0
+    assert metrics.passed is True
+
+
+def test_compute_metrics_for_one_zero_array_fails_with_cosine_zero() -> None:
+    reference = np.zeros((1, 3), dtype=np.float32)
+    candidate = np.array([[1.0, 2.0, 3.0]], dtype=np.float32)
+
+    metrics = compute_metrics(reference, candidate, DEFAULT_THRESHOLDS)
+
+    assert metrics.cosine_similarity == 0.0
+    assert metrics.passed is False
+
+
 def test_compute_metrics_rejects_shape_mismatch() -> None:
     reference = np.zeros((1, 2, 3), dtype=np.float32)
     candidate = np.zeros((1, 2, 4), dtype=np.float32)
@@ -77,4 +99,77 @@ def test_validate_report_dict_requires_thresholds() -> None:
     }
 
     with pytest.raises(ValueError, match="missing required field: thresholds"):
+        validate_report_dict(payload)
+
+
+def test_validate_report_dict_rejects_mismatched_shape_flag() -> None:
+    payload = ParityReport(
+        reference_provider="pyannote-3.1-segmentation-pytorch",
+        candidate_provider="pyannote-3.1-segmentation-mlx",
+        audio_chunk={
+            "source": "fixtures/single-speaker/system-track.wav",
+            "startTimeSeconds": 0.0,
+            "durationSeconds": 10.0,
+            "sampleRate": 16000,
+        },
+        shape={"reference": [1, 3], "candidate": [1, 4], "matches": True},
+        dtype={"reference": "float32", "candidate": "float32"},
+        mean_abs_error=0.0,
+        max_abs_error=0.0,
+        cosine_similarity=1.0,
+        thresholds=DEFAULT_THRESHOLDS,
+        passed=True,
+    ).to_dict()
+
+    with pytest.raises(
+        ValueError, match="shape matches must equal reference == candidate"
+    ):
+        validate_report_dict(payload)
+
+
+def test_validate_report_dict_rejects_non_boolean_passed() -> None:
+    payload = ParityReport(
+        reference_provider="pyannote-3.1-segmentation-pytorch",
+        candidate_provider="pyannote-3.1-segmentation-mlx",
+        audio_chunk={
+            "source": "fixtures/single-speaker/system-track.wav",
+            "startTimeSeconds": 0.0,
+            "durationSeconds": 10.0,
+            "sampleRate": 16000,
+        },
+        shape={"reference": [1, 3], "candidate": [1, 3], "matches": True},
+        dtype={"reference": "float32", "candidate": "float32"},
+        mean_abs_error=0.0,
+        max_abs_error=0.0,
+        cosine_similarity=1.0,
+        thresholds=DEFAULT_THRESHOLDS,
+        passed=True,
+    ).to_dict()
+    payload["passed"] = "true"
+
+    with pytest.raises(ValueError, match="field passed must be a bool"):
+        validate_report_dict(payload)
+
+
+def test_validate_report_dict_rejects_negative_mean_abs_error() -> None:
+    payload = ParityReport(
+        reference_provider="pyannote-3.1-segmentation-pytorch",
+        candidate_provider="pyannote-3.1-segmentation-mlx",
+        audio_chunk={
+            "source": "fixtures/single-speaker/system-track.wav",
+            "startTimeSeconds": 0.0,
+            "durationSeconds": 10.0,
+            "sampleRate": 16000,
+        },
+        shape={"reference": [1, 3], "candidate": [1, 3], "matches": True},
+        dtype={"reference": "float32", "candidate": "float32"},
+        mean_abs_error=0.0,
+        max_abs_error=0.0,
+        cosine_similarity=1.0,
+        thresholds=DEFAULT_THRESHOLDS,
+        passed=True,
+    ).to_dict()
+    payload["meanAbsError"] = -0.1
+
+    with pytest.raises(ValueError, match="field meanAbsError must be non-negative"):
         validate_report_dict(payload)
