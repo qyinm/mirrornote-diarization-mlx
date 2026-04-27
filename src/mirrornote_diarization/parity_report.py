@@ -124,6 +124,9 @@ def compute_metrics(
 
 def validate_report_dict(payload: Mapping[str, Any]) -> None:
     """Validate the required public parity report fields and nested contracts."""
+    if not isinstance(payload, Mapping):
+        raise ValueError("report must be a JSON object")
+
     for field in REQUIRED_REPORT_FIELDS:
         if field not in payload:
             raise ValueError(f"missing required field: {field}")

@@ -161,6 +161,18 @@ def test_cli_validate_report_reports_schema_validation_error(tmp_path, capsys) -
     assert "missing required field: thresholds" in captured.err
 
 
+def test_cli_validate_report_reports_non_object_json(tmp_path, capsys) -> None:
+    report_path = tmp_path / "null-report.json"
+    report_path.write_text("null", encoding="utf-8")
+
+    exit_code = main(["segmentation", "validate-report", str(report_path)])
+
+    captured = capsys.readouterr()
+    assert exit_code != 0
+    assert "invalid parity report" in captured.err
+    assert "report must be a JSON object" in captured.err
+
+
 def test_validate_report_dict_requires_thresholds() -> None:
     payload = {
         "referenceProvider": "pyannote-3.1-segmentation-pytorch",
