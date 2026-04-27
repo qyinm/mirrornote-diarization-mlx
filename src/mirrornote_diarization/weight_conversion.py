@@ -135,24 +135,26 @@ def _pyannet_candidate_key(reference_key: str) -> str:
 
 
 def _pyannet_lstm_candidate_key(reference_key: str) -> str:
-    parts = reference_key.split("_")
-    layer_token = parts[-1]
-    direction = "forward"
-    if layer_token == "reverse":
-        layer_token = parts[-2]
-        direction = "reverse"
-    layer_index = int(layer_token.removeprefix("l"))
-
-    if reference_key.startswith("lstm.weight_ih"):
-        leaf = "weight_ih"
-    elif reference_key.startswith("lstm.weight_hh"):
-        leaf = "weight_hh"
-    elif reference_key.startswith("lstm.bias_ih"):
-        leaf = "bias_ih"
-    elif reference_key.startswith("lstm.bias_hh"):
-        leaf = "bias_hh"
-    else:
+    body = reference_key.removeprefix("lstm.")
+    parts = body.split("_")
+    if len(parts) not in (3, 4):
         raise ValueError(f"unsupported PyanNet LSTM key: {reference_key}")
+
+    parameter_kind, matrix_kind, layer_token = parts[:3]
+    if parameter_kind not in {"weight", "bias"} or matrix_kind not in {"ih", "hh"}:
+        raise ValueError(f"unsupported PyanNet LSTM key: {reference_key}")
+
+    direction = "forward"
+    if len(parts) == 4:
+        if parts[3] != "reverse":
+            raise ValueError(f"unsupported PyanNet LSTM key: {reference_key}")
+        direction = "reverse"
+
+    if not layer_token.startswith("l") or not layer_token[1:].isdigit():
+        raise ValueError(f"unsupported PyanNet LSTM key: {reference_key}")
+
+    layer_index = int(layer_token[1:])
+    leaf = f"{parameter_kind}_{matrix_kind}"
 
     return f"lstm.layers.{layer_index}.{direction}.{leaf}"
 
