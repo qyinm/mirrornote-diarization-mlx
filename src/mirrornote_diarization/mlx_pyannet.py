@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -297,7 +298,14 @@ class MlxPyanNetSegmentation:
         init=False,
         repr=False,
     )
+    _conv_weight_transposes: dict[str, Any] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+    )
     _cached_sinc_filters: Any = field(default=None, init=False, repr=False)
+    _fast_math: bool = field(default=False, init=False, repr=False)
+    _use_fp16: bool = field(default=False, init=False, repr=False)
 
     @classmethod
     def from_reference_weights(
@@ -320,8 +328,10 @@ class MlxPyanNetSegmentation:
         }
 
         model = cls(reference_weights=mapped)
+        use_fp16 = os.getenv("PYANNOTE_MLX_FP16", "0") in {"1", "true", "True"}
+        reference_weight_dtype = mx.float16 if use_fp16 else mx.float32
         mx_reference_weights = {
-            candidate_key: mx.array(weights, dtype=mx.float32)
+            candidate_key: mx.array(weights, dtype=reference_weight_dtype)
             for candidate_key, weights in mapped.items()
         }
         object.__setattr__(
@@ -329,6 +339,7 @@ class MlxPyanNetSegmentation:
             "_mx_weights",
             mx_reference_weights,
         )
+        object.__setattr__(model, "_use_fp16", use_fp16)
         object.__setattr__(
             model,
             "_dense_weight_transposes",
@@ -336,6 +347,16 @@ class MlxPyanNetSegmentation:
                 "linear.layers.0.weight_t": mx_reference_weights["linear.layers.0.weight"].T,
                 "linear.layers.1.weight_t": mx_reference_weights["linear.layers.1.weight"].T,
                 "classifier.weight_t": mx_reference_weights["classifier.weight"].T,
+            },
+        )
+        object.__setattr__(
+            model,
+            "_conv_weight_transposes",
+            {
+                f"sincnet.conv.layers.{layer}.weight": mx_reference_weights[
+                    f"sincnet.conv.layers.{layer}.weight"
+                ].transpose(0, 2, 1)
+                for layer in (1, 2)
             },
         )
         object.__setattr__(
@@ -390,13 +411,18 @@ class MlxPyanNetSegmentation:
                     mapped["sincnet.sinc_filterbank.low_hz"],
                     mapped["sincnet.sinc_filterbank.band_hz"],
                 ),
-                dtype=mx.float32,
+                dtype=reference_weight_dtype,
             ),
         )
         object.__setattr__(
             model,
             "_compile_enabled",
             os.getenv("PYANNOTE_MLX_COMPILE", "1") != "0",
+        )
+        object.__setattr__(
+            model,
+            "_fast_math",
+            os.getenv("PYANNOTE_MLX_FAST_MATH", "0") in {"1", "true", "True"},
         )
 
         return model
@@ -410,16 +436,22 @@ class MlxPyanNetSegmentation:
                 f"{PYANNET_EXPECTED_WAVEFORM_SHAPE}; got {tuple(waveform.shape)}"
             )
 
-        x = self._sincnet(waveform)
-        x = self._lstm(x)
-        x = self.linear_head(x)
-        max_per_frame = mx.max(x, axis=2, keepdims=True)
-        x = x - max_per_frame
-        return x - mx.log(mx.sum(mx.exp(x), axis=2, keepdims=True))
+        if self._use_fp16:
+            waveform = waveform.astype(mx.float16)
+
+        with (mx.fast() if self._fast_math else contextlib.nullcontext()):
+            x = self._sincnet(waveform)
+            x = self._lstm(x)
+            x = self.linear_head(x)
+            return x - mx.logsumexp(x, axis=2, keepdims=True)
 
     @property
     def _reference(self) -> dict[str, np.ndarray]:
         return self.reference_weights
+
+    @property
+    def _lstm_backend_name(self) -> str:
+        return "nn" if self._use_mlx_lstm else "manual"
 
     def _sincnet(self, waveform: Any) -> Any:
         import mlx.core as mx
@@ -447,7 +479,9 @@ class MlxPyanNetSegmentation:
         outputs = _leaky_relu(outputs)
 
         for layer in range(2):
-            conv_weight = self._mx_weights[f"sincnet.conv.layers.{layer + 1}.weight"]
+            conv_weight = self._conv_weight_transposes[
+                f"sincnet.conv.layers.{layer + 1}.weight"
+            ]
             conv_bias = self._mx_weights[f"sincnet.conv.layers.{layer + 1}.bias"]
             outputs = _conv1d_nlc(outputs, conv_weight, bias=conv_bias)
             outputs = _max_pool1d(outputs, kernel_size=3, stride=3)

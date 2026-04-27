@@ -90,7 +90,12 @@ def _bench_mlx(
         mx.eval(output)
         latencies_ms.append(_to_finite_ms((time.perf_counter() - start) * 1000.0))
 
-    return _summary_stats("pyannote-3.1-segmentation-mlx", latencies_ms)
+    summary = _summary_stats("pyannote-3.1-segmentation-mlx", latencies_ms)
+    summary["lstmBackend"] = model._lstm_backend_name
+    summary["compileEnabled"] = model._compile_enabled
+    summary["fastMathEnabled"] = model._fast_math
+    summary["fp16Enabled"] = model._use_fp16
+    return summary
 
 
 def _bench_pyannote(
@@ -342,7 +347,7 @@ def main() -> int:
     print(f"wrote runtime benchmark plot: {args.plot}")
     if "comparison" in summary:
         print("metric_name: mlx_speedup_vs_pyannote_mean_time_x")
-        print(f"metric_value: {summary['comparison']['pytorchFasterThanMlxX']}")
+        print(f"metric_value: {summary['comparison']['mlxSpeedupVsPyannoteX']}")
         print("metric_unit: x")
 
     return 0

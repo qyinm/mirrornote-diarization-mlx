@@ -1,3 +1,5 @@
 commit	metric_name	metric_value	unit	status	description
 e6d2e52a4158a092314e6fbdd734cd6e77507e69	pytorch_faster_than_mlx_x	0.17378080006752888	x	baseline	Initial baseline before optimization loop
 12799db	pytorch_faster_than_mlx_x	nan	x	crash	MLX benchmark could not run in this environment (no Metal device available)
+c05c192	pytorch_faster_than_mlx_x	nan	x	crash	run attempted with PYANNOTE_MLX_LSTM_BACKEND=nn in this environment; MLX failed to initialize Metal device
+c05c192	mlx_speedup_vs_pyannote_mean_time_x	1.5898221161805641	x	discard	Observed run from uv run python scripts/benchmark_segmentation_runtime.py --runs 20 --warmup 5 (10s chunk)
