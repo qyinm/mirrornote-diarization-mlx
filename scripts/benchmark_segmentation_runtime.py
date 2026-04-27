@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 import argparse
 import json
@@ -12,9 +13,6 @@ import time
 from typing import Any
 
 import numpy as np
-
-from mirrornote_diarization.mlx_pyannet import MlxPyanNetSegmentation
-from mirrornote_diarization.weight_conversion import load_npz_weights
 from mirrornote_diarization.chunking import extract_fixed_chunk
 
 
@@ -88,7 +86,10 @@ def _bench_mlx(
     waveform: np.ndarray,
     runs: int,
     warmup: int,
+    profile_stages: bool,
 ) -> dict[str, Any]:
+    from mirrornote_diarization.mlx_pyannet import MlxPyanNetSegmentation
+    from mirrornote_diarization.weight_conversion import load_npz_weights
     import mlx.core as mx
 
     reference_weights = load_npz_weights(weights)
@@ -96,23 +97,98 @@ def _bench_mlx(
     input_dtype = mx.float16 if model._use_fp16 else mx.float32
     input_waveform = mx.array(waveform, dtype=input_dtype)
 
+    if profile_stages:
+        model._compile_enabled = False
+
     for _ in range(max(1, warmup)):
-        output = model(input_waveform)
-        mx.eval(output)
+        if profile_stages:
+            _ = _bench_mlx_stages(model, input_waveform)
+        else:
+            output = model(input_waveform)
+            mx.eval(output)
 
     latencies_ms: list[float] = []
+    stage_stats: dict[str, list[float]] = {"sincnet": [], "lstm": [], "linear": [], "total": []}
     for _ in range(runs):
         start = time.perf_counter()
-        output = model(input_waveform)
-        mx.eval(output)
-        latencies_ms.append(_to_finite_ms((time.perf_counter() - start) * 1000.0))
+        if profile_stages:
+            stage_latency = _bench_mlx_stages(model, input_waveform)
+            latencies_ms.append(stage_latency["total"])
+            for name in stage_stats:
+                stage_stats[name].append(stage_latency[name])
+        else:
+            output = model(input_waveform)
+            mx.eval(output)
+            latencies_ms.append(_to_finite_ms((time.perf_counter() - start) * 1000.0))
 
     summary = _summary_stats("pyannote-3.1-segmentation-mlx", latencies_ms)
     summary["lstmBackend"] = model._lstm_backend_name
     summary["compileEnabled"] = model._compile_enabled
     summary["fastMathEnabled"] = model._fast_math
     summary["fp16Enabled"] = model._use_fp16
+    if profile_stages:
+        summary["stageProfilesMs"] = {
+            name: _summary_stats(name, values)
+            for name, values in stage_stats.items()
+            if values
+        }
+
+        profile_total = summary["stageProfilesMs"]["total"]["meanMs"]
+        summary["stagePercentMs"] = {
+            stage: _to_finite_ms(profile["meanMs"] / profile_total)
+            for stage, profile in summary["stageProfilesMs"].items()
+        }
     return summary
+
+
+def _bench_mlx_stages(model: Any, input_waveform: Any) -> dict[str, float]:
+    import mlx.core as mx
+
+    start = time.perf_counter()
+    with _with_fast_context(model._fast_math):
+        sinc_output = model._sincnet(input_waveform)
+        mx.eval(sinc_output)
+        sinc_ms = _to_finite_ms((time.perf_counter() - start) * 1000.0)
+
+    start = time.perf_counter()
+    with _with_fast_context(model._fast_math):
+        lstm_output = model._lstm(sinc_output)
+        mx.eval(lstm_output)
+        lstm_ms = _to_finite_ms((time.perf_counter() - start) * 1000.0)
+
+    start = time.perf_counter()
+    with _with_fast_context(model._fast_math):
+        linear_output = model.linear_head(lstm_output)
+        mx.eval(linear_output)
+        linear_ms = _to_finite_ms((time.perf_counter() - start) * 1000.0)
+
+    total_ms = sinc_ms + lstm_ms + linear_ms
+    return {
+        "sincnet": sinc_ms,
+        "lstm": lstm_ms,
+        "linear": linear_ms,
+        "total": total_ms,
+    }
+
+
+def _with_fast_context(enabled: bool):
+    import mlx.core as mx
+
+    try:
+        from mlx.core.fast import fast
+
+        if callable(fast):
+            return fast() if enabled else contextlib.nullcontext()
+    except Exception:
+        pass
+
+    if not enabled:
+        return contextlib.nullcontext()
+
+    mx_fast = getattr(mx, "fast", None)
+    if callable(mx_fast):
+        return mx_fast()
+    return contextlib.nullcontext()
 
 
 def _bench_pyannote(
@@ -253,6 +329,11 @@ def main() -> int:
     parser.add_argument("--warmup", type=int, default=5)
     parser.add_argument("--report", type=Path, default=DEFAULT_REPORT_PATH)
     parser.add_argument("--plot", type=Path, default=DEFAULT_PLOT_PATH)
+    parser.add_argument(
+        "--profile-stages",
+        action="store_true",
+        help="Measure MLX stages (sincnet/lstm/linear) separately",
+    )
     parser.add_argument("--no-pyannote", action="store_true")
     args = parser.parse_args()
 
@@ -283,6 +364,7 @@ def main() -> int:
                 waveform=waveform_chunk,
                 runs=args.runs,
                 warmup=args.warmup,
+                profile_stages=args.profile_stages,
             ),
             "status": "ok",
             "statusMessage": None,
@@ -368,6 +450,23 @@ def main() -> int:
         print(f"metric_value: {summary['comparison']['mlxFasterThanPyannoteX']}")
         print("metric_unit: x")
         print(f"metric_ok_target_3x: {summary['comparison']['speedupTargetMet']}")
+
+    if args.profile_stages:
+        stage_entry = next(
+            (
+                entry
+                for entry in summary["providers"]
+                if entry["provider"] == "pyannote-3.1-segmentation-mlx"
+                and "stageProfilesMs" in entry
+            ),
+            None,
+        )
+        if stage_entry is not None:
+            print("stage_profile_ms:")
+            for stage in ("sincnet", "lstm", "linear", "total"):
+                value = stage_entry["stageProfilesMs"].get(stage, {})
+                if value:
+                    print(f"  {stage}: mean={value['meanMs']:.2f}, p95={value['p95Ms']:.2f}")
 
     return 0
 

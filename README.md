@@ -129,6 +129,12 @@ Run the runtime comparison between the MLX candidate and the reference pyannote 
 uv run python scripts/benchmark_segmentation_runtime.py --runs 12 --warmup 3
 ```
 
+For stage-level profiling (sincnet / lstm / linear):
+
+```bash
+uv run python scripts/benchmark_segmentation_runtime.py --runs 12 --warmup 3 --profile-stages
+```
+
 Current environment and settings:
 
 - Input: `artifacts/probe/librispeech-dummy-probe/waveform-input.npz` (10.0 s, 16,000 Hz mono)
