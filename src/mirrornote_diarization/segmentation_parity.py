@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import sys
+from zipfile import BadZipFile
 
 import numpy as np
 
@@ -214,7 +215,7 @@ def _mlx_candidate(args: argparse.Namespace) -> int:
 
         args.out.parent.mkdir(parents=True, exist_ok=True)
         model.write_candidate_npz(waveform, args.out)
-    except (OSError, KeyError, ValueError, ImportError) as exc:
+    except (OSError, KeyError, ValueError, ImportError, BadZipFile) as exc:
         print(f"MLX segmentation candidate failed: {exc}", file=sys.stderr)
         return 1
 

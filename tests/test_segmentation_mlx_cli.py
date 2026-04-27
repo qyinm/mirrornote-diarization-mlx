@@ -15,14 +15,8 @@ def _write_complete_weights(path) -> None:
     np.savez(path, **weights)
 
 
-def test_mlx_candidate_cli_writes_shape_correct_candidate_npz(tmp_path) -> None:
-    weights_path = tmp_path / "weights.npz"
-    waveform_path = tmp_path / "waveform.npz"
-    output_path = tmp_path / "candidate.npz"
-    _write_complete_weights(weights_path)
-    np.savez(waveform_path, waveform=np.zeros((1, 1, 160000), dtype=np.float32))
-
-    exit_code = main(
+def _run_mlx_candidate(weights_path, waveform_path, output_path) -> int:
+    return main(
         [
             "segmentation",
             "mlx-candidate",
@@ -34,6 +28,16 @@ def test_mlx_candidate_cli_writes_shape_correct_candidate_npz(tmp_path) -> None:
             str(output_path),
         ]
     )
+
+
+def test_mlx_candidate_cli_writes_shape_correct_candidate_npz(tmp_path) -> None:
+    weights_path = tmp_path / "weights.npz"
+    waveform_path = tmp_path / "waveform.npz"
+    output_path = tmp_path / "nested" / "candidate.npz"
+    _write_complete_weights(weights_path)
+    np.savez(waveform_path, waveform=np.zeros((1, 1, 160000), dtype=np.float32))
+
+    exit_code = _run_mlx_candidate(weights_path, waveform_path, output_path)
 
     assert exit_code == 0
     with np.load(output_path) as payload:
@@ -52,18 +56,45 @@ def test_mlx_candidate_cli_missing_waveform_key_returns_1_without_output(
     _write_complete_weights(weights_path)
     np.savez(waveform_path, audio=np.zeros((1, 1, 160000), dtype=np.float32))
 
-    exit_code = main(
-        [
-            "segmentation",
-            "mlx-candidate",
-            "--weights",
-            str(weights_path),
-            "--waveform-npz",
-            str(waveform_path),
-            "--out",
-            str(output_path),
-        ]
-    )
+    exit_code = _run_mlx_candidate(weights_path, waveform_path, output_path)
 
     assert exit_code == 1
     assert not output_path.exists()
+
+
+def test_mlx_candidate_cli_corrupt_weights_returns_1_without_traceback(
+    tmp_path,
+    capsys,
+) -> None:
+    weights_path = tmp_path / "weights.npz"
+    waveform_path = tmp_path / "waveform.npz"
+    output_path = tmp_path / "candidate.npz"
+    weights_path.write_bytes(b"not a valid npz")
+    np.savez(waveform_path, waveform=np.zeros((1, 1, 160000), dtype=np.float32))
+
+    exit_code = _run_mlx_candidate(weights_path, waveform_path, output_path)
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert not output_path.exists()
+    assert "MLX segmentation candidate failed" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_mlx_candidate_cli_corrupt_waveform_returns_1_without_traceback(
+    tmp_path,
+    capsys,
+) -> None:
+    weights_path = tmp_path / "weights.npz"
+    waveform_path = tmp_path / "waveform.npz"
+    output_path = tmp_path / "candidate.npz"
+    _write_complete_weights(weights_path)
+    waveform_path.write_bytes(b"not a valid npz")
+
+    exit_code = _run_mlx_candidate(weights_path, waveform_path, output_path)
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert not output_path.exists()
+    assert "MLX segmentation candidate failed" in captured.err
+    assert "Traceback" not in captured.err
