@@ -135,6 +135,12 @@ For stage-level profiling (sincnet / lstm / linear):
 uv run python scripts/benchmark_segmentation_runtime.py --runs 12 --warmup 3 --profile-stages
 ```
 
+To profile stage timing while keeping model compilation enabled (usually faster but less isolated):
+
+```bash
+uv run python scripts/benchmark_segmentation_runtime.py --runs 12 --warmup 3 --profile-stages --profile-with-compile
+```
+
 Current environment and settings:
 
 - Input: `artifacts/probe/librispeech-dummy-probe/waveform-input.npz` (10.0 s, 16,000 Hz mono)
@@ -155,7 +161,7 @@ Summary (mean across measured runs):
 | `pyannote-3.1-segmentation-mlx` | `189.96` | `182.16` | `235.51` | `52.64x` |
 
 Current interpretation for this run:
-- `mlx_faster_than_pyannote_mean_time_x = 0.294` (less than 1.0 means MLX is slower).
+- `mlx_faster_than_pyannote_mean_time_x = 0.217` (less than 1.0 means MLX is slower).
 - `speedupTargetMet` is `false` for 3x target.
 
 ![Segmentation runtime benchmark](reports/segmentation-benchmark/runtime-benchmark.png)

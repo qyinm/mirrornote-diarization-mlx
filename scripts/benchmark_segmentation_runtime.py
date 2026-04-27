@@ -87,6 +87,7 @@ def _bench_mlx(
     runs: int,
     warmup: int,
     profile_stages: bool,
+    profile_with_compile: bool,
 ) -> dict[str, Any]:
     from mirrornote_diarization.mlx_pyannet import MlxPyanNetSegmentation
     from mirrornote_diarization.weight_conversion import load_npz_weights
@@ -97,12 +98,16 @@ def _bench_mlx(
     input_dtype = mx.float16 if model._use_fp16 else mx.float32
     input_waveform = mx.array(waveform, dtype=input_dtype)
 
-    if profile_stages:
+    if profile_stages and not profile_with_compile:
         object.__setattr__(model, "_compile_enabled", False)
 
     for _ in range(max(1, warmup)):
         if profile_stages:
-            _ = _bench_mlx_stages(model, input_waveform)
+            _ = _bench_mlx_stages(
+                model,
+                input_waveform,
+                compile_stages=(profile_stages and profile_with_compile),
+            )
         else:
             output = model(input_waveform)
             mx.eval(output)
@@ -112,7 +117,11 @@ def _bench_mlx(
     for _ in range(runs):
         start = time.perf_counter()
         if profile_stages:
-            stage_latency = _bench_mlx_stages(model, input_waveform)
+            stage_latency = _bench_mlx_stages(
+                model,
+                input_waveform,
+                compile_stages=(profile_stages and profile_with_compile),
+            )
             latencies_ms.append(stage_latency["total"])
             for name in stage_stats:
                 stage_stats[name].append(stage_latency[name])
@@ -141,24 +150,38 @@ def _bench_mlx(
     return summary
 
 
-def _bench_mlx_stages(model: Any, input_waveform: Any) -> dict[str, float]:
+def _bench_mlx_stages(
+    model: Any,
+    input_waveform: Any,
+    *,
+    compile_stages: bool,
+) -> dict[str, float]:
     import mlx.core as mx
+
+    sinc_stage = model._sincnet
+    lstm_stage = model._lstm
+    linear_stage = model.linear_head
+
+    if compile_stages and getattr(model, "_compile_enabled", False):
+        sinc_stage = mx.compile(sinc_stage)
+        lstm_stage = mx.compile(lstm_stage)
+        linear_stage = mx.compile(linear_stage)
 
     start = time.perf_counter()
     with _with_fast_context(model._fast_math):
-        sinc_output = model._sincnet(input_waveform)
+        sinc_output = sinc_stage(input_waveform)
         mx.eval(sinc_output)
         sinc_ms = _to_finite_ms((time.perf_counter() - start) * 1000.0)
 
     start = time.perf_counter()
     with _with_fast_context(model._fast_math):
-        lstm_output = model._lstm(sinc_output)
+        lstm_output = lstm_stage(sinc_output)
         mx.eval(lstm_output)
         lstm_ms = _to_finite_ms((time.perf_counter() - start) * 1000.0)
 
     start = time.perf_counter()
     with _with_fast_context(model._fast_math):
-        linear_output = model.linear_head(lstm_output)
+        linear_output = linear_stage(lstm_output)
         mx.eval(linear_output)
         linear_ms = _to_finite_ms((time.perf_counter() - start) * 1000.0)
 
@@ -334,6 +357,11 @@ def main() -> int:
         action="store_true",
         help="Measure MLX stages (sincnet/lstm/linear) separately",
     )
+    parser.add_argument(
+        "--profile-with-compile",
+        action="store_true",
+        help="When profiling stages, keep model compilation enabled and profile compiled kernels",
+    )
     parser.add_argument("--no-pyannote", action="store_true")
     args = parser.parse_args()
 
@@ -365,6 +393,7 @@ def main() -> int:
                 runs=args.runs,
                 warmup=args.warmup,
                 profile_stages=args.profile_stages,
+                profile_with_compile=args.profile_with_compile,
             ),
             "status": "ok",
             "statusMessage": None,
