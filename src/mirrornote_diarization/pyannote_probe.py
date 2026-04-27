@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+import functools
+import inspect
 import json
 import os
 from pathlib import Path
@@ -84,6 +86,8 @@ def run_pyannote_probe(audio_chunk: Any, out_dir: str | Path) -> PyannoteProbeMe
         raise RuntimeError(
             "install pyannote dependencies with: uv sync --extra pyannote"
         ) from exc
+
+    _patch_huggingface_hub_token_compat()
 
     pipeline = Pipeline.from_pretrained(
         "pyannote/speaker-diarization-3.1",
@@ -174,3 +178,38 @@ def _duration_seconds(value: Any, fallback: float) -> float:
     if total_seconds is not None:
         return float(total_seconds)
     return float(value)
+
+
+def _patch_huggingface_hub_token_compat() -> None:
+    """Map pyannote 3.1's legacy use_auth_token calls to HF Hub's token API."""
+    import huggingface_hub
+
+    original = huggingface_hub.hf_hub_download
+    if getattr(original, "_mirrornote_token_compat", False):
+        patched = original
+    elif "use_auth_token" in inspect.signature(original).parameters:
+        patched = original
+    else:
+
+        @functools.wraps(original)
+        def patched(*args: Any, **kwargs: Any) -> Any:
+            if "use_auth_token" in kwargs and "token" not in kwargs:
+                kwargs["token"] = kwargs.pop("use_auth_token")
+            else:
+                kwargs.pop("use_auth_token", None)
+            return original(*args, **kwargs)
+
+        patched._mirrornote_token_compat = True  # type: ignore[attr-defined]
+        huggingface_hub.hf_hub_download = patched
+
+    for module_name in (
+        "pyannote.audio.core.pipeline",
+        "pyannote.audio.core.model",
+        "pyannote.audio.pipelines.speaker_verification",
+    ):
+        try:
+            module = __import__(module_name, fromlist=["hf_hub_download"])
+        except ImportError:
+            continue
+        if hasattr(module, "hf_hub_download"):
+            module.hf_hub_download = patched

@@ -7,3 +7,7 @@ reports/segmentation-parity/*
 !reports/segmentation-parity/.gitkeep
 artifacts/
 .worktrees/
+
+.env
+.env.*
+!.env.example
