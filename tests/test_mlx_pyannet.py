@@ -80,6 +80,22 @@ def test_forward_returns_expected_shape_for_mlx_waveform() -> None:
     assert tuple(output.shape) == PYANNET_EXPECTED_OUTPUT_SHAPE
 
 
+def test_mlx_pyannet_linear_head_uses_reference_weights() -> None:
+    reference_weights = _zero_reference_weights()
+    reference_weights["linear.0.weight"] = np.eye(128, 256, dtype=np.float32)
+    reference_weights["linear.0.bias"] = np.ones(128, dtype=np.float32)
+    reference_weights["linear.1.weight"] = np.eye(128, 128, dtype=np.float32)
+    reference_weights["linear.1.bias"] = np.ones(128, dtype=np.float32) * 2.0
+    reference_weights["classifier.weight"] = np.ones((7, 128), dtype=np.float32)
+    reference_weights["classifier.bias"] = np.ones(7, dtype=np.float32) * 3.0
+    model = MlxPyanNetSegmentation.from_reference_weights(reference_weights)
+
+    output = model.linear_head(mlx.ones((1, 589, 256), dtype=mlx.float32))
+
+    assert tuple(output.shape) == (1, 589, 7)
+    assert np.allclose(np.asarray(output), 515.0)
+
+
 def test_write_candidate_npz_writes_float32_output(tmp_path) -> None:
     model = MlxPyanNetSegmentation.from_reference_weights(_zero_reference_weights())
     waveform = np.zeros((1, 1, 160000), dtype=np.float32)
