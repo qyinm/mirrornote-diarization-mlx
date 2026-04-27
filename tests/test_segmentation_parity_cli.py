@@ -33,3 +33,64 @@ def test_compare_npz_writes_passing_report_for_identical_outputs(tmp_path) -> No
     payload = json.loads(report_path.read_text(encoding="utf-8"))
     assert payload["passed"] is True
     assert payload["shape"]["matches"] is True
+
+
+def test_compare_npz_fails_dtype_mismatch_even_with_identical_values(tmp_path) -> None:
+    reference_path = tmp_path / "reference.npz"
+    candidate_path = tmp_path / "candidate.npz"
+    report_path = tmp_path / "reports" / "segmentation-parity.json"
+    values = np.array([[[0.1, 0.9], [0.4, 0.6]]], dtype=np.float32)
+    np.savez(reference_path, output=values)
+    np.savez(candidate_path, output=values.astype(np.float64))
+
+    exit_code = main(
+        [
+            "segmentation",
+            "compare-npz",
+            "--reference",
+            str(reference_path),
+            "--candidate",
+            str(candidate_path),
+            "--source",
+            "fixtures/single-speaker/system-track.wav",
+            "--out",
+            str(report_path),
+        ]
+    )
+
+    assert exit_code == 1
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+    assert payload["passed"] is False
+    assert payload["dtype"] == {"reference": "float32", "candidate": "float64"}
+
+
+def test_compare_npz_writes_failure_report_for_shape_mismatch(tmp_path) -> None:
+    reference_path = tmp_path / "reference.npz"
+    candidate_path = tmp_path / "candidate.npz"
+    report_path = tmp_path / "reports" / "segmentation-parity.json"
+    np.savez(reference_path, output=np.zeros((1, 2, 3), dtype=np.float32))
+    np.savez(candidate_path, output=np.zeros((1, 2, 4), dtype=np.float32))
+
+    exit_code = main(
+        [
+            "segmentation",
+            "compare-npz",
+            "--reference",
+            str(reference_path),
+            "--candidate",
+            str(candidate_path),
+            "--source",
+            "fixtures/single-speaker/system-track.wav",
+            "--out",
+            str(report_path),
+        ]
+    )
+
+    assert exit_code == 1
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+    assert payload["passed"] is False
+    assert payload["shape"] == {
+        "reference": [1, 2, 3],
+        "candidate": [1, 2, 4],
+        "matches": False,
+    }

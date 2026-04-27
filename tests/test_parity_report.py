@@ -266,3 +266,49 @@ def test_validate_report_dict_rejects_negative_mean_abs_error() -> None:
 
     with pytest.raises(ValueError, match="field meanAbsError must be non-negative"):
         validate_report_dict(payload)
+
+
+def test_validate_report_dict_rejects_passed_true_with_failing_metrics() -> None:
+    payload = ParityReport(
+        reference_provider="pyannote-3.1-segmentation-pytorch",
+        candidate_provider="pyannote-3.1-segmentation-mlx",
+        audio_chunk={
+            "source": "fixtures/single-speaker/system-track.wav",
+            "startTimeSeconds": 0.0,
+            "durationSeconds": 10.0,
+            "sampleRate": 16000,
+        },
+        shape={"reference": [1, 3], "candidate": [1, 3], "matches": True},
+        dtype={"reference": "float32", "candidate": "float32"},
+        mean_abs_error=1.0,
+        max_abs_error=2.0,
+        cosine_similarity=0.0,
+        thresholds=DEFAULT_THRESHOLDS,
+        passed=True,
+    ).to_dict()
+
+    with pytest.raises(ValueError, match="passed must match report metrics"):
+        validate_report_dict(payload)
+
+
+def test_validate_report_dict_rejects_passed_true_with_dtype_mismatch() -> None:
+    payload = ParityReport(
+        reference_provider="pyannote-3.1-segmentation-pytorch",
+        candidate_provider="pyannote-3.1-segmentation-mlx",
+        audio_chunk={
+            "source": "fixtures/single-speaker/system-track.wav",
+            "startTimeSeconds": 0.0,
+            "durationSeconds": 10.0,
+            "sampleRate": 16000,
+        },
+        shape={"reference": [1, 3], "candidate": [1, 3], "matches": True},
+        dtype={"reference": "float32", "candidate": "float64"},
+        mean_abs_error=0.0,
+        max_abs_error=0.0,
+        cosine_similarity=1.0,
+        thresholds=DEFAULT_THRESHOLDS,
+        passed=True,
+    ).to_dict()
+
+    with pytest.raises(ValueError, match="passed must match report metrics"):
+        validate_report_dict(payload)

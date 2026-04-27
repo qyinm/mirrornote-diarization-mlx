@@ -136,31 +136,7 @@ def _compare_npz(args: argparse.Namespace) -> int:
     try:
         reference = _load_npz_output(args.reference, "reference")
         candidate = _load_npz_output(args.candidate, "candidate")
-        metrics = compute_metrics(reference, candidate, DEFAULT_THRESHOLDS)
-        report = ParityReport(
-            reference_provider="pyannote-3.1-segmentation-pytorch",
-            candidate_provider="pyannote-3.1-segmentation-mlx",
-            audio_chunk={
-                "source": args.source,
-                "startTimeSeconds": 0.0,
-                "durationSeconds": 10.0,
-                "sampleRate": 16000,
-            },
-            shape={
-                "reference": [int(dimension) for dimension in reference.shape],
-                "candidate": [int(dimension) for dimension in candidate.shape],
-                "matches": reference.shape == candidate.shape,
-            },
-            dtype={
-                "reference": str(reference.dtype),
-                "candidate": str(candidate.dtype),
-            },
-            mean_abs_error=metrics.mean_abs_error,
-            max_abs_error=metrics.max_abs_error,
-            cosine_similarity=_clamp_cosine_similarity(metrics.cosine_similarity),
-            thresholds=DEFAULT_THRESHOLDS,
-            passed=metrics.passed,
-        )
+        report = _build_npz_parity_report(reference, candidate, args.source)
         payload = report.to_dict()
         validate_report_dict(payload)
 
@@ -174,7 +150,58 @@ def _compare_npz(args: argparse.Namespace) -> int:
         return 1
 
     print(f"wrote segmentation parity report: {args.out}")
-    return 0 if metrics.passed else 1
+    return 0 if report.passed else 1
+
+
+def _build_npz_parity_report(
+    reference: np.ndarray,
+    candidate: np.ndarray,
+    source: str,
+) -> ParityReport:
+    shape_matches = reference.shape == candidate.shape
+    dtype_matches = reference.dtype == candidate.dtype
+    if shape_matches:
+        metrics = compute_metrics(reference, candidate, DEFAULT_THRESHOLDS)
+        mean_abs_error = metrics.mean_abs_error
+        max_abs_error = metrics.max_abs_error
+        cosine_similarity = _clamp_cosine_similarity(metrics.cosine_similarity)
+    else:
+        mean_abs_error = DEFAULT_THRESHOLDS["meanAbsError"] + 1.0
+        max_abs_error = DEFAULT_THRESHOLDS["maxAbsError"] + 1.0
+        cosine_similarity = 0.0
+
+    passed = (
+        shape_matches
+        and dtype_matches
+        and mean_abs_error <= DEFAULT_THRESHOLDS["meanAbsError"]
+        and max_abs_error <= DEFAULT_THRESHOLDS["maxAbsError"]
+        and cosine_similarity >= DEFAULT_THRESHOLDS["cosineSimilarity"]
+    )
+
+    return ParityReport(
+        reference_provider="pyannote-3.1-segmentation-pytorch",
+        candidate_provider="pyannote-3.1-segmentation-mlx",
+        audio_chunk={
+            "source": source,
+            "startTimeSeconds": 0.0,
+            "durationSeconds": 10.0,
+            "sampleRate": 16000,
+        },
+        shape={
+            "reference": [int(dimension) for dimension in reference.shape],
+            "candidate": [int(dimension) for dimension in candidate.shape],
+            "matches": shape_matches,
+        },
+        dtype={
+            "reference": str(reference.dtype),
+            "candidate": str(candidate.dtype),
+        },
+        mean_abs_error=mean_abs_error,
+        max_abs_error=max_abs_error,
+        cosine_similarity=cosine_similarity,
+        thresholds=DEFAULT_THRESHOLDS,
+        passed=passed,
+    )
 
 
 def _load_npz_output(npz_path: Path, label: str) -> np.ndarray:

@@ -142,6 +142,7 @@ def validate_report_dict(payload: Mapping[str, Any]) -> None:
     _validate_thresholds(payload["thresholds"])
     if not isinstance(payload["passed"], bool):
         raise ValueError("field passed must be a bool")
+    _validate_passed_matches_metrics(payload)
 
 
 def _validate_audio_chunk(audio_chunk: Any) -> None:
@@ -233,6 +234,21 @@ def _validate_cosine_similarity(value: Any) -> None:
     _validate_finite_number(value, "cosineSimilarity")
     if value < -1.0 or value > 1.0:
         raise ValueError("field cosineSimilarity must be between -1.0 and 1.0")
+
+
+def _validate_passed_matches_metrics(payload: Mapping[str, Any]) -> None:
+    shape = payload["shape"]
+    dtype = payload["dtype"]
+    thresholds = payload["thresholds"]
+    expected_passed = (
+        shape["matches"]
+        and dtype["reference"] == dtype["candidate"]
+        and payload["meanAbsError"] <= thresholds["meanAbsError"]
+        and payload["maxAbsError"] <= thresholds["maxAbsError"]
+        and payload["cosineSimilarity"] >= thresholds["cosineSimilarity"]
+    )
+    if payload["passed"] != expected_passed:
+        raise ValueError("passed must match report metrics, shape, dtype, and thresholds")
 
 
 def _is_int_list(value: Any) -> bool:
