@@ -51,6 +51,12 @@ def _to_finite_ms(value: float) -> float:
     return float(value) if float(value) > 0 else 0.0
 
 
+def _safe_division(numerator: float, denominator: float) -> float:
+    if float(denominator) <= 0:
+        return 0.0
+    return _to_finite_ms(numerator / denominator)
+
+
 def _bench_device() -> str:
     import torch
 
@@ -333,19 +339,15 @@ def main() -> int:
         summary["comparison"] = {
             "pyannoteMeanMs": _to_finite_ms(pytorch["meanMs"]),
             "mlxMeanMs": _to_finite_ms(mlx["meanMs"]),
-            "pytorchFasterThanMlxX": _to_finite_ms(pytorch["meanMs"] / mlx["meanMs"])
-            if mlx["meanMs"]
-            else None,
-            "mlxSpeedupVsPyannoteX": _to_finite_ms(mlx["meanMs"] / pytorch["meanMs"])
-            if pytorch["meanMs"]
-            else None,
-            "pytorchRealTimeFactor": _to_finite_ms(audio_seconds / (pytorch["meanMs"] / 1000.0))
-            if pytorch["meanMs"]
-            else None,
-            "mlxRealTimeFactor": _to_finite_ms(audio_seconds / (mlx["meanMs"] / 1000.0))
-            if mlx["meanMs"]
-            else None,
+            "pytorchFasterThanMlxX": _safe_division(mlx["meanMs"], pytorch["meanMs"]),
+            "mlxFasterThanPyannoteX": _safe_division(pytorch["meanMs"], mlx["meanMs"]),
+            "pytorchRealTimeFactor": _safe_division(audio_seconds, pytorch["meanMs"] / 1000.0),
+            "mlxRealTimeFactor": _safe_division(audio_seconds, mlx["meanMs"] / 1000.0),
         }
+        summary["comparison"]["mlxSpeedupVsPyannoteX"] = summary["comparison"]["mlxFasterThanPyannoteX"]
+        summary["comparison"]["speedupTargetMet"] = (
+            summary["comparison"]["mlxFasterThanPyannoteX"] >= 3.0
+        )
 
     summary["environment"] = {
         "platform": platform.platform(),
@@ -362,9 +364,10 @@ def main() -> int:
     print(f"wrote runtime benchmark: {args.report}")
     print(f"wrote runtime benchmark plot: {args.plot}")
     if "comparison" in summary:
-        print("metric_name: mlx_speedup_vs_pyannote_mean_time_x")
-        print(f"metric_value: {summary['comparison']['mlxSpeedupVsPyannoteX']}")
+        print("metric_name: mlx_faster_than_pyannote_mean_time_x")
+        print(f"metric_value: {summary['comparison']['mlxFasterThanPyannoteX']}")
         print("metric_unit: x")
+        print(f"metric_ok_target_3x: {summary['comparison']['speedupTargetMet']}")
 
     return 0
 

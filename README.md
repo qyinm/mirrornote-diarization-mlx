@@ -145,9 +145,11 @@ Summary (mean across measured runs):
 
 | Provider | Mean (ms) | Median (ms) | p95 (ms) | Real-time factor |
 |---|---:|---:|---:|---:|
-| `pyannote-3.1-segmentation-pytorch` | `89.98` | `87.45` | `101.19` | `111.14x` |
-| `pyannote-3.1-segmentation-mlx` | `517.76` | `504.13` | `589.10` | `19.31x` |
+| `pyannote-3.1-segmentation-pytorch` | `55.96` | `51.65` | `70.63` | `178.69x` |
+| `pyannote-3.1-segmentation-mlx` | `189.96` | `182.16` | `235.51` | `52.64x` |
 
-Current interpretation: MLX path is currently slower than PyTorch in this run (`pytorchMeanMs / mlxMeanMs = 0.174`, so `pyannote` is ~`5.75x` faster than MLX on this machine for this chunk).
+Current interpretation for this run:
+- `mlx_faster_than_pyannote_mean_time_x = 0.294` (less than 1.0 means MLX is slower).
+- `speedupTargetMet` is `false` for 3x target.
 
 ![Segmentation runtime benchmark](reports/segmentation-benchmark/runtime-benchmark.png)
