@@ -13,8 +13,8 @@ This document records facts discovered while implementing M4A segmentation parit
 
 ## Probe Results
 
-A real probe has been run with `artifacts/audio/librispeech-dummy-probe/audio.wav`.
-The generated tensor artifacts stay under ignored `artifacts/` paths.
+The committed PyanNet contract comes from the dummy-audio oracle probe at `artifacts/audio/librispeech-dummy-probe/audio.wav`.
+The generated tensor artifacts stay under ignored `artifacts/` paths. A MirrorNote-style fixture snapshot remains future work.
 
 Summary:
 
