@@ -32,6 +32,28 @@ _SINCNET_HOP_SIZE = 2.0 * np.pi * np.arange(-_SINCNET_HOP_WINDOW, 0.0).reshape(1
 _SINCNET_MIN_LOW_HZ = 50.0
 _SINCNET_MIN_BAND_HZ = 50.0
 
+try:
+    from mlx.core.fast import fast as _mlx_fast_context
+except Exception:  # pragma: no cover - fallback for older MLX module layouts
+    _mlx_fast_context = None
+
+
+def _with_mlx_fast_context(enabled: bool):
+    if not enabled:
+        return contextlib.nullcontext()
+    if _mlx_fast_context is not None:
+        if callable(_mlx_fast_context):
+            return _mlx_fast_context()
+        nested_fast = getattr(_mlx_fast_context, "fast", None)
+        if callable(nested_fast):
+            return nested_fast()
+    import mlx.core as mx
+
+    mx_fast = getattr(mx, "fast", None)
+    if callable(mx_fast):
+        return mx_fast()
+    return contextlib.nullcontext()
+
 
 def _to_mx_array(values: Any) -> Any:
     import mlx.core as mx
@@ -439,15 +461,6 @@ class MlxPyanNetSegmentation:
 
     def _forward_impl(self, waveform: Any) -> Any:
         import mlx.core as mx
-        fast_context = contextlib.nullcontext
-        if self._fast_math:
-            try:
-                from mlx.core.fast import fast as mx_fast
-            except Exception:  # pragma: no cover - fallback for older MLX module layouts
-                mx_fast = None
-            if mx_fast is not None:
-                fast_context = mx_fast
-
         if tuple(waveform.shape) != PYANNET_EXPECTED_WAVEFORM_SHAPE:
             raise ValueError(
                 "PyanNet MLX waveform must have shape "
@@ -459,7 +472,7 @@ class MlxPyanNetSegmentation:
         elif waveform.dtype not in (mx.float32, mx.float16):
             waveform = waveform.astype(mx.float32)
 
-        with fast_context():
+        with _with_mlx_fast_context(self._fast_math):
             x = self._sincnet(waveform)
             x = self._lstm(x)
             x = self.linear_head(x)

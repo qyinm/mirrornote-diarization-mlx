@@ -1,8 +1,10 @@
 import numpy as np
+import contextlib
 import pytest
 
 mlx = pytest.importorskip("mlx.core")
 
+import mirrornote_diarization.mlx_pyannet as mlx_pyannet
 from mirrornote_diarization.mlx_pyannet import MlxPyanNetSegmentation
 from mirrornote_diarization.mlx_segmentation import (
     MlxSegmentationConfig,
@@ -94,6 +96,48 @@ def test_mlx_pyannet_linear_head_uses_reference_weights() -> None:
 
     assert tuple(output.shape) == (1, 589, 7)
     assert np.allclose(np.asarray(output), 515.0)
+
+
+def test_with_mlx_fast_context_respects_fast_flag(monkeypatch) -> None:
+    class Marker:
+        called = False
+
+    def fake_fast() -> contextlib.AbstractContextManager[None]:
+        Marker.called = True
+        return contextlib.nullcontext()
+
+    monkeypatch.setattr(mlx_pyannet, "_mlx_fast_context", fake_fast)
+
+    with mlx_pyannet._with_mlx_fast_context(True):
+        pass
+
+    assert Marker.called
+
+
+def test_with_mlx_fast_context_uses_nested_fast_attr(monkeypatch) -> None:
+    class FastModule:
+        def __init__(self) -> None:
+            self.called = False
+
+        def fast(self) -> contextlib.AbstractContextManager[None]:
+            self.called = True
+            return contextlib.nullcontext()
+
+    fast_module = FastModule()
+    monkeypatch.setattr(mlx_pyannet, "_mlx_fast_context", fast_module)
+
+    with mlx_pyannet._with_mlx_fast_context(True):
+        pass
+
+    assert fast_module.called
+
+
+def test_with_mlx_fast_context_disabled() -> None:
+    context = mlx_pyannet._with_mlx_fast_context(False)
+
+    assert isinstance(context, contextlib.AbstractContextManager)
+    with context:
+        assert True
 
 
 def test_write_candidate_npz_writes_float32_output(tmp_path) -> None:
