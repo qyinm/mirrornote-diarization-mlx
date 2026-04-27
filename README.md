@@ -61,6 +61,12 @@ Validate a segmentation parity report with:
 uv run mirrornote-diarize segmentation validate-report reports/segmentation-parity/example.json
 ```
 
+Compare saved segmentation reference and candidate `.npz` artifacts with:
+
+```bash
+uv run mirrornote-diarize segmentation compare-npz --reference artifacts/reference.npz --candidate artifacts/candidate.npz --source fixtures/single-speaker/system-track.wav --out reports/segmentation-parity/compare.json
+```
+
 Run the gated pyannote segmentation probe with:
 
 ```bash

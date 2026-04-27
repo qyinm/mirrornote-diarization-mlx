@@ -12,7 +12,12 @@ import sys
 import numpy as np
 
 from mirrornote_diarization.chunking import extract_fixed_chunk
-from mirrornote_diarization.parity_report import validate_report_dict
+from mirrornote_diarization.parity_report import (
+    DEFAULT_THRESHOLDS,
+    ParityReport,
+    compute_metrics,
+    validate_report_dict,
+)
 from mirrornote_diarization.pyannote_probe import (
     require_pyannote_enabled,
     run_pyannote_probe,
@@ -44,6 +49,14 @@ def build_parser() -> argparse.ArgumentParser:
     probe_parser.add_argument("--start-seconds", type=float, default=0.0)
     probe_parser.add_argument("--duration-seconds", type=float, default=10.0)
 
+    compare_npz_parser = segmentation_subparsers.add_parser(
+        "compare-npz", help="Compare saved segmentation reference and candidate arrays"
+    )
+    compare_npz_parser.add_argument("--reference", type=Path, required=True)
+    compare_npz_parser.add_argument("--candidate", type=Path, required=True)
+    compare_npz_parser.add_argument("--source", required=True)
+    compare_npz_parser.add_argument("--out", type=Path, required=True)
+
     return parser
 
 
@@ -62,6 +75,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return _validate_report(args.report)
             if args.segmentation_command == "probe":
                 return _probe(args)
+            if args.segmentation_command == "compare-npz":
+                return _compare_npz(args)
             parser.error("unsupported segmentation command")
 
         parser.error("unsupported command")
@@ -115,6 +130,65 @@ def _probe(args: argparse.Namespace) -> int:
 
     print(f"wrote pyannote probe artifacts: {args.out}")
     return 0
+
+
+def _compare_npz(args: argparse.Namespace) -> int:
+    try:
+        reference = _load_npz_output(args.reference, "reference")
+        candidate = _load_npz_output(args.candidate, "candidate")
+        metrics = compute_metrics(reference, candidate, DEFAULT_THRESHOLDS)
+        report = ParityReport(
+            reference_provider="pyannote-3.1-segmentation-pytorch",
+            candidate_provider="pyannote-3.1-segmentation-mlx",
+            audio_chunk={
+                "source": args.source,
+                "startTimeSeconds": 0.0,
+                "durationSeconds": 10.0,
+                "sampleRate": 16000,
+            },
+            shape={
+                "reference": [int(dimension) for dimension in reference.shape],
+                "candidate": [int(dimension) for dimension in candidate.shape],
+                "matches": reference.shape == candidate.shape,
+            },
+            dtype={
+                "reference": str(reference.dtype),
+                "candidate": str(candidate.dtype),
+            },
+            mean_abs_error=metrics.mean_abs_error,
+            max_abs_error=metrics.max_abs_error,
+            cosine_similarity=_clamp_cosine_similarity(metrics.cosine_similarity),
+            thresholds=DEFAULT_THRESHOLDS,
+            passed=metrics.passed,
+        )
+        payload = report.to_dict()
+        validate_report_dict(payload)
+
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    except (OSError, KeyError, ValueError) as exc:
+        print(f"segmentation npz comparison failed: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"wrote segmentation parity report: {args.out}")
+    return 0 if metrics.passed else 1
+
+
+def _load_npz_output(npz_path: Path, label: str) -> np.ndarray:
+    try:
+        with np.load(npz_path) as payload:
+            if "output" not in payload:
+                raise KeyError(f"{label} npz missing required 'output' array: {npz_path}")
+            return np.asarray(payload["output"])
+    except OSError as exc:
+        raise OSError(f"could not read {label} npz: {npz_path}: {exc}") from exc
+
+
+def _clamp_cosine_similarity(value: float) -> float:
+    return max(-1.0, min(1.0, value))
 
 
 def _load_wav_mono(audio_path: Path) -> tuple[np.ndarray, int]:
