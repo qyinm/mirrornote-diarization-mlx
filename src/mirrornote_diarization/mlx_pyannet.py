@@ -158,8 +158,10 @@ def _instance_norm1d(x: Any, weight: Any, bias: Any) -> Any:
         raise ValueError("expected channel-wise InstanceNorm1d weight and bias")
 
     mean = mx.mean(x, axis=1, keepdims=True)
-    var = mx.mean((x - mean) ** 2, axis=1, keepdims=True)
-    denominator = mx.sqrt(var + _INSTANCE_NORM_EPSILON)
+    mean_sq = mx.mean(x * x, axis=1, keepdims=True)
+    variance = mean_sq - mean * mean
+    variance = mx.maximum(variance, 0.0)
+    denominator = mx.sqrt(variance + _INSTANCE_NORM_EPSILON)
     x = (x - mean) / denominator
 
     w = weight.reshape(1, 1, channels)
@@ -177,7 +179,7 @@ def _lstm_one_direction(
 ) -> Any:
     import mlx.core as mx
 
-    x = _to_mx_array(inputs)
+    x = inputs
     if reverse:
         x = x[:, ::-1, :]
 
@@ -220,7 +222,7 @@ def _lstm_one_direction_nn(
     *,
     reverse: bool,
 ) -> Any:
-    x = _to_mx_array(inputs)
+    x = inputs
     if reverse:
         x = x[:, ::-1, :]
 
