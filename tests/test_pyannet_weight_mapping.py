@@ -88,6 +88,7 @@ def test_pyannet_mapping_rules_use_stable_candidate_namespace() -> None:
 @pytest.mark.parametrize(
     "reference_key",
     [
+        "weight_ih_l0",
         "lstm.weight_ihh_l0",
         "lstm.weight_ih_projection_l0",
         "lstm.bias_ih_extra_l2_reverse",

@@ -135,6 +135,9 @@ def _pyannet_candidate_key(reference_key: str) -> str:
 
 
 def _pyannet_lstm_candidate_key(reference_key: str) -> str:
+    if not reference_key.startswith("lstm."):
+        raise ValueError(f"unsupported PyanNet LSTM key: {reference_key}")
+
     body = reference_key.removeprefix("lstm.")
     parts = body.split("_")
     if len(parts) not in (3, 4):
