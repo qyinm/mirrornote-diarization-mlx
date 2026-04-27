@@ -6,7 +6,7 @@ This repository starts with an oracle-first path: run `pyannote/speaker-diarizat
 
 ## Status
 
-Planning scaffold only. No runtime implementation yet.
+Planning scaffold plus offline segmentation parity contracts and the `segmentation validate-report` CLI exist. No pyannote or MLX runtime implementation exists yet.
 
 ## First Principle
 
@@ -61,7 +61,7 @@ Validate a segmentation parity report with:
 uv run mirrornote-diarize segmentation validate-report reports/segmentation-parity/example.json
 ```
 
-After the offline contracts are passing, run the gated pyannote probe with:
+Planned gated pyannote probe command, not currently runnable until the probe parser/runtime is implemented in a later task:
 
 ```bash
 MIRRORNOTE_RUN_PYANNOTE_PROBE=1 HUGGINGFACE_ACCESS_TOKEN="$HUGGINGFACE_ACCESS_TOKEN" uv run mirrornote-diarize segmentation probe --audio fixtures/single-speaker/system-track.wav --out artifacts/probe
