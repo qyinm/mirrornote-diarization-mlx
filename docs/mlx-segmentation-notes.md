@@ -2,29 +2,30 @@
 
 ## Purpose
 
-This document records facts discovered while implementing M4A segmentation parity. It is not a product roadmap.
+This document records facts discovered while implementing M4A segmentation parity. It is not a product roadmap. It exists to make pyannote architecture, weight mapping, unsupported MLX operations, and threshold changes auditable.
 
 ## Reference Model
 
-The reference model is `pyannote/speaker-diarization-3.1`.
-
-The first MLX target is segmentation only, not full diarization. Provider names should remain explicit when comparing behavior between the reference provider and the MLX provider.
+- Pipeline: `pyannote/speaker-diarization-3.1`
+- First MLX target: segmentation submodel only
+- Reference provider name: `pyannote-3.1-segmentation-pytorch`
+- Candidate provider name: `pyannote-3.1-segmentation-mlx`
 
 ## Probe Results
 
 No probe has been run yet.
 
-Future generated artifacts should go under `artifacts/` or `reports/`. Do not inline large tensors in this document.
+The first real probe should add a generated JSON artifact under `artifacts/` or `reports/segmentation-parity/`. Do not inline large tensor values in this document.
 
 ## Weight Mapping Decisions
 
 No architecture-specific mapping has been accepted yet.
 
-The first accepted mapping must be strict.
+The first accepted mapping must be strict: every required reference weight maps to one candidate parameter with the same shape.
 
 ## Unsupported Operations
 
-None confirmed yet.
+No unsupported MLX operations confirmed yet.
 
 ## Threshold Changes
 

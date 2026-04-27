@@ -67,4 +67,4 @@ After the offline contracts are passing, run the gated pyannote probe with:
 MIRRORNOTE_RUN_PYANNOTE_PROBE=1 HUGGINGFACE_ACCESS_TOKEN="$HUGGINGFACE_ACCESS_TOKEN" uv run mirrornote-diarize segmentation probe --audio fixtures/single-speaker/system-track.wav --out artifacts/probe
 ```
 
-Generated probe artifacts should not be committed unless they are small deterministic metadata. Larger generated artifacts belong under `artifacts/` or `reports/` for local inspection only.
+The probe command is implemented after the offline contracts are passing. Generated probe artifacts should not be committed unless they are small, deterministic metadata files.
