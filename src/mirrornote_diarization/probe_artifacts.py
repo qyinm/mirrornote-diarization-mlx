@@ -23,9 +23,29 @@ class ProbeArtifacts:
         for shape in self.metadata.get("weightShapes", {}).values():
             product = 1
             for dimension in shape:
-                product *= int(dimension)
+                product *= dimension
             total += product
         return total
+
+
+def _validate_metadata(metadata: Any) -> dict[str, Any]:
+    if not isinstance(metadata, dict):
+        raise ValueError("metadata.json must contain an object")
+
+    weight_shapes = metadata.get("weightShapes")
+    if weight_shapes is None:
+        return metadata
+    if not isinstance(weight_shapes, dict):
+        raise ValueError("weightShapes must be an object")
+
+    for shape in weight_shapes.values():
+        if not isinstance(shape, list):
+            raise ValueError("weightShapes dimensions must be positive integers")
+        for dimension in shape:
+            if isinstance(dimension, bool) or not isinstance(dimension, int) or dimension <= 0:
+                raise ValueError("weightShapes dimensions must be positive integers")
+
+    return metadata
 
 
 def load_probe_artifacts(probe_dir: Path) -> ProbeArtifacts:
@@ -36,7 +56,7 @@ def load_probe_artifacts(probe_dir: Path) -> ProbeArtifacts:
     if not output_path.exists():
         raise ValueError(f"missing reference-output.npz in probe directory: {probe_dir}")
 
-    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata = _validate_metadata(json.loads(metadata_path.read_text(encoding="utf-8")))
     with np.load(output_path) as payload:
         if "output" not in payload:
             raise ValueError(f"reference-output.npz missing output array: {output_path}")

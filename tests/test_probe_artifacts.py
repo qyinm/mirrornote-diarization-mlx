@@ -47,3 +47,39 @@ def test_load_probe_artifacts_rejects_missing_output_key(tmp_path):
 
     with pytest.raises(ValueError, match="missing output array"):
         load_probe_artifacts(probe_dir)
+
+
+def test_load_probe_artifacts_rejects_non_object_metadata(tmp_path):
+    probe_dir = tmp_path / "probe"
+    probe_dir.mkdir()
+    (probe_dir / "metadata.json").write_text("null", encoding="utf-8")
+    np.savez(probe_dir / "reference-output.npz", output=np.zeros((1, 1, 1), dtype=np.float32))
+
+    with pytest.raises(ValueError, match="metadata.json must contain an object"):
+        load_probe_artifacts(probe_dir)
+
+
+def test_load_probe_artifacts_rejects_non_object_weight_shapes(tmp_path):
+    probe_dir = tmp_path / "probe"
+    probe_dir.mkdir()
+    (probe_dir / "metadata.json").write_text(
+        json.dumps({"weightShapes": ["bad"]}),
+        encoding="utf-8",
+    )
+    np.savez(probe_dir / "reference-output.npz", output=np.zeros((1, 1, 1), dtype=np.float32))
+
+    with pytest.raises(ValueError, match="weightShapes must be an object"):
+        load_probe_artifacts(probe_dir)
+
+
+def test_load_probe_artifacts_rejects_invalid_weight_shape_dimensions(tmp_path):
+    probe_dir = tmp_path / "probe"
+    probe_dir.mkdir()
+    (probe_dir / "metadata.json").write_text(
+        json.dumps({"weightShapes": {"w": ["bad"]}}),
+        encoding="utf-8",
+    )
+    np.savez(probe_dir / "reference-output.npz", output=np.zeros((1, 1, 1), dtype=np.float32))
+
+    with pytest.raises(ValueError, match="weightShapes dimensions must be positive integers"):
+        load_probe_artifacts(probe_dir)
