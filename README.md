@@ -6,7 +6,7 @@ This repository starts with an oracle-first path: run `pyannote/speaker-diarizat
 
 ## Status
 
-Planning scaffold plus offline segmentation parity contracts and the `segmentation validate-report` CLI exist. No pyannote or MLX runtime implementation exists yet.
+Planning scaffold plus offline segmentation parity contracts, the `segmentation validate-report` CLI, and a gated pyannote segmentation probe CLI exist. The pyannote runtime path remains opt-in because it requires extra dependencies and Hugging Face credentials.
 
 ## First Principle
 
@@ -61,10 +61,10 @@ Validate a segmentation parity report with:
 uv run mirrornote-diarize segmentation validate-report reports/segmentation-parity/example.json
 ```
 
-Planned gated pyannote probe command, not currently runnable until the probe parser/runtime is implemented in a later task:
+Run the gated pyannote segmentation probe with:
 
 ```bash
 MIRRORNOTE_RUN_PYANNOTE_PROBE=1 HUGGINGFACE_ACCESS_TOKEN="$HUGGINGFACE_ACCESS_TOKEN" uv run mirrornote-diarize segmentation probe --audio fixtures/single-speaker/system-track.wav --out artifacts/probe
 ```
 
-The probe command is implemented after the offline contracts are passing. Generated probe artifacts should not be committed unless they are small, deterministic metadata files.
+The probe command is registered, but it is intentionally gated by `MIRRORNOTE_RUN_PYANNOTE_PROBE=1` and `HUGGINGFACE_ACCESS_TOKEN`. Generated probe artifacts should not be committed unless they are small, deterministic metadata files.
