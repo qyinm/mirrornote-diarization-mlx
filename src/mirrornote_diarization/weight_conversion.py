@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+from mirrornote_diarization.pyannet_contract import PYANNET_EXPECTED_WEIGHT_SHAPES
 
 
 @dataclass(frozen=True)
@@ -74,6 +77,84 @@ def validate_weight_mapping(
         shape_mismatches=shape_mismatches,
         passed=not missing_reference and not shape_mismatches,
     )
+
+
+def load_npz_weights(path: str | Path) -> dict[str, np.ndarray]:
+    """Load named weight arrays from a `.npz` file as float32 arrays."""
+    with np.load(path) as payload:
+        return {
+            name: np.asarray(payload[name], dtype=np.float32)
+            for name in payload.files
+        }
+
+
+def build_pyannet_mapping_rules() -> list[MappingRule]:
+    """Build strict reference-to-MLX mapping rules for pyannote 3.1 PyanNet."""
+    return [
+        MappingRule(
+            reference_key=name,
+            candidate_key=_pyannet_candidate_key(name),
+            expected_shape=shape,
+        )
+        for name, shape in PYANNET_EXPECTED_WEIGHT_SHAPES.items()
+    ]
+
+
+def _pyannet_candidate_key(reference_key: str) -> str:
+    direct = {
+        "classifier.bias": "classifier.bias",
+        "classifier.weight": "classifier.weight",
+        "linear.0.bias": "linear.layers.0.bias",
+        "linear.0.weight": "linear.layers.0.weight",
+        "linear.1.bias": "linear.layers.1.bias",
+        "linear.1.weight": "linear.layers.1.weight",
+        "sincnet.conv1d.0.filterbank.band_hz_": "sincnet.sinc_filterbank.band_hz",
+        "sincnet.conv1d.0.filterbank.low_hz_": "sincnet.sinc_filterbank.low_hz",
+        "sincnet.conv1d.0.filterbank.n_": "sincnet.sinc_filterbank.n",
+        "sincnet.conv1d.0.filterbank.window_": "sincnet.sinc_filterbank.window",
+        "sincnet.conv1d.1.bias": "sincnet.conv.layers.1.bias",
+        "sincnet.conv1d.1.weight": "sincnet.conv.layers.1.weight",
+        "sincnet.conv1d.2.bias": "sincnet.conv.layers.2.bias",
+        "sincnet.conv1d.2.weight": "sincnet.conv.layers.2.weight",
+        "sincnet.norm1d.0.bias": "sincnet.norm.layers.0.bias",
+        "sincnet.norm1d.0.weight": "sincnet.norm.layers.0.weight",
+        "sincnet.norm1d.1.bias": "sincnet.norm.layers.1.bias",
+        "sincnet.norm1d.1.weight": "sincnet.norm.layers.1.weight",
+        "sincnet.norm1d.2.bias": "sincnet.norm.layers.2.bias",
+        "sincnet.norm1d.2.weight": "sincnet.norm.layers.2.weight",
+        "sincnet.wav_norm1d.bias": "sincnet.wav_norm.bias",
+        "sincnet.wav_norm1d.weight": "sincnet.wav_norm.weight",
+    }
+    if reference_key in direct:
+        return direct[reference_key]
+
+    if reference_key.startswith("lstm."):
+        return _pyannet_lstm_candidate_key(reference_key)
+
+    raise ValueError(f"unsupported PyanNet reference key: {reference_key}")
+
+
+def _pyannet_lstm_candidate_key(reference_key: str) -> str:
+    parts = reference_key.split("_")
+    layer_token = parts[-1]
+    direction = "forward"
+    if layer_token == "reverse":
+        layer_token = parts[-2]
+        direction = "reverse"
+    layer_index = int(layer_token.removeprefix("l"))
+
+    if reference_key.startswith("lstm.weight_ih"):
+        leaf = "weight_ih"
+    elif reference_key.startswith("lstm.weight_hh"):
+        leaf = "weight_hh"
+    elif reference_key.startswith("lstm.bias_ih"):
+        leaf = "bias_ih"
+    elif reference_key.startswith("lstm.bias_hh"):
+        leaf = "bias_hh"
+    else:
+        raise ValueError(f"unsupported PyanNet LSTM key: {reference_key}")
+
+    return f"lstm.layers.{layer_index}.{direction}.{leaf}"
 
 
 def _reject_duplicate_keys(rules: Sequence[MappingRule]) -> None:

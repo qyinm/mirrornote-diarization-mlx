@@ -57,9 +57,17 @@ Do not commit large tensor artifacts from `artifacts/`. A small JSON summary und
 
 ## Weight Mapping Decisions
 
-No architecture-specific mapping has been accepted yet.
+Accepted mapping namespace:
 
-The first accepted mapping must be strict: every required reference weight maps to one candidate parameter with the same shape.
+- PyTorch `sincnet.wav_norm1d.*` maps to MLX `sincnet.wav_norm.*`.
+- PyTorch `sincnet.conv1d.0.filterbank.*_` maps to MLX `sincnet.sinc_filterbank.*` without trailing underscore.
+- PyTorch `sincnet.conv1d.1.*` and `sincnet.conv1d.2.*` map to MLX `sincnet.conv.layers.1.*` and `sincnet.conv.layers.2.*`.
+- PyTorch `sincnet.norm1d.N.*` maps to MLX `sincnet.norm.layers.N.*`.
+- PyTorch bidirectional LSTM keys map to `lstm.layers.{index}.{forward|reverse}.{weight_ih|weight_hh|bias_ih|bias_hh}`.
+- PyTorch `linear.N.*` maps to MLX `linear.layers.N.*`.
+- PyTorch `classifier.*` maps to MLX `classifier.*`.
+
+The mapping is strict: every expected reference key must exist and match the observed shape before candidate execution is allowed.
 
 ## Unsupported Operations
 
