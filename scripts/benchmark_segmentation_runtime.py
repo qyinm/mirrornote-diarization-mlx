@@ -100,12 +100,14 @@ def _bench_mlx(
 
     if profile_stages and not profile_with_compile:
         object.__setattr__(model, "_compile_enabled", False)
+    stage_callables = _prepare_mlx_stage_callables(model, compile_stages=profile_with_compile)
 
     for _ in range(max(1, warmup)):
         if profile_stages:
             _ = _bench_mlx_stages(
                 model,
                 input_waveform,
+                stage_callables=stage_callables,
                 compile_stages=(profile_stages and profile_with_compile),
             )
         else:
@@ -120,6 +122,7 @@ def _bench_mlx(
             stage_latency = _bench_mlx_stages(
                 model,
                 input_waveform,
+                stage_callables=stage_callables,
                 compile_stages=(profile_stages and profile_with_compile),
             )
             latencies_ms.append(stage_latency["total"])
@@ -153,19 +156,19 @@ def _bench_mlx(
 def _bench_mlx_stages(
     model: Any,
     input_waveform: Any,
+    stage_callables: tuple[Any, Any, Any] | None = None,
     *,
     compile_stages: bool,
 ) -> dict[str, float]:
     import mlx.core as mx
 
-    sinc_stage = model._sincnet
-    lstm_stage = model._lstm
-    linear_stage = model.linear_head
+    if stage_callables is None:
+        stage_callables = _prepare_mlx_stage_callables(
+            model,
+            compile_stages=compile_stages,
+        )
 
-    if compile_stages and getattr(model, "_compile_enabled", False):
-        sinc_stage = mx.compile(sinc_stage)
-        lstm_stage = mx.compile(lstm_stage)
-        linear_stage = mx.compile(linear_stage)
+    sinc_stage, lstm_stage, linear_stage = stage_callables
 
     start = time.perf_counter()
     with _with_fast_context(model._fast_math):
@@ -192,6 +195,19 @@ def _bench_mlx_stages(
         "linear": linear_ms,
         "total": total_ms,
     }
+
+
+def _prepare_mlx_stage_callables(
+    model: Any,
+    *,
+    compile_stages: bool,
+) -> tuple[Any, Any, Any]:
+    if not compile_stages or not getattr(model, "_compile_enabled", False):
+        return model._sincnet, model._lstm, model.linear_head
+
+    import mlx.core as mx
+
+    return mx.compile(model._sincnet), mx.compile(model._lstm), mx.compile(model.linear_head)
 
 
 def _with_fast_context(enabled: bool):
