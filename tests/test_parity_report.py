@@ -110,6 +110,57 @@ def test_cli_validate_report_accepts_valid_report(tmp_path, capsys) -> None:
     assert "valid parity report" in captured.out
 
 
+def test_cli_validate_report_reports_missing_file(tmp_path, capsys) -> None:
+    report_path = tmp_path / "missing-report.json"
+
+    exit_code = main(["segmentation", "validate-report", str(report_path)])
+
+    captured = capsys.readouterr()
+    assert exit_code != 0
+    assert "could not read parity report" in captured.err
+    assert str(report_path) in captured.err
+
+
+def test_cli_validate_report_reports_malformed_json(tmp_path, capsys) -> None:
+    report_path = tmp_path / "malformed-report.json"
+    report_path.write_text("{not valid json", encoding="utf-8")
+
+    exit_code = main(["segmentation", "validate-report", str(report_path)])
+
+    captured = capsys.readouterr()
+    assert exit_code != 0
+    assert "invalid JSON parity report" in captured.err
+    assert str(report_path) in captured.err
+
+
+def test_cli_validate_report_reports_schema_validation_error(tmp_path, capsys) -> None:
+    payload = {
+        "referenceProvider": "pyannote-3.1-segmentation-pytorch",
+        "candidateProvider": "pyannote-3.1-segmentation-mlx",
+        "audioChunk": {
+            "source": "fixtures/single-speaker/system-track.wav",
+            "startTimeSeconds": 0.0,
+            "durationSeconds": 10.0,
+            "sampleRate": 16000,
+        },
+        "shape": {"reference": [1, 3], "candidate": [1, 3], "matches": True},
+        "dtype": {"reference": "float32", "candidate": "float32"},
+        "meanAbsError": 0.0,
+        "maxAbsError": 0.0,
+        "cosineSimilarity": 1.0,
+        "passed": True,
+    }
+    report_path = tmp_path / "invalid-report.json"
+    report_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    exit_code = main(["segmentation", "validate-report", str(report_path)])
+
+    captured = capsys.readouterr()
+    assert exit_code != 0
+    assert "invalid parity report" in captured.err
+    assert "missing required field: thresholds" in captured.err
+
+
 def test_validate_report_dict_requires_thresholds() -> None:
     payload = {
         "referenceProvider": "pyannote-3.1-segmentation-pytorch",

@@ -6,6 +6,7 @@ import argparse
 from collections.abc import Sequence
 import json
 from pathlib import Path
+import sys
 
 from mirrornote_diarization.parity_report import validate_report_dict
 
@@ -42,11 +43,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         if args.command == "segmentation":
             if args.segmentation_command == "validate-report":
-                with args.report.open(encoding="utf-8") as report_file:
-                    payload = json.load(report_file)
-                validate_report_dict(payload)
-                print(f"valid parity report: {args.report}")
-                return 0
+                return _validate_report(args.report)
             parser.error("unsupported segmentation command")
 
         parser.error("unsupported command")
@@ -54,6 +51,33 @@ def main(argv: Sequence[str] | None = None) -> int:
         return exc.code if isinstance(exc.code, int) else 2
 
     return 2
+
+
+def _validate_report(report_path: Path) -> int:
+    try:
+        with report_path.open(encoding="utf-8") as report_file:
+            payload = json.load(report_file)
+    except OSError as exc:
+        print(
+            f"could not read parity report: {report_path}: {exc}",
+            file=sys.stderr,
+        )
+        return 1
+    except json.JSONDecodeError as exc:
+        print(
+            f"invalid JSON parity report: {report_path}: {exc.msg}",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        validate_report_dict(payload)
+    except ValueError as exc:
+        print(f"invalid parity report: {report_path}: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"valid parity report: {report_path}")
+    return 0
 
 
 if __name__ == "__main__":
