@@ -94,6 +94,19 @@ def test_load_probe_artifacts_rejects_non_object_weight_shapes(tmp_path):
         load_probe_artifacts(probe_dir)
 
 
+def test_load_probe_artifacts_rejects_null_weight_shapes(tmp_path):
+    probe_dir = tmp_path / "probe"
+    probe_dir.mkdir()
+    (probe_dir / "metadata.json").write_text(
+        json.dumps({"weightShapes": None}),
+        encoding="utf-8",
+    )
+    np.savez(probe_dir / "reference-output.npz", output=np.zeros((1, 1, 1), dtype=np.float32))
+
+    with pytest.raises(ValueError, match="weightShapes must be an object"):
+        load_probe_artifacts(probe_dir)
+
+
 def test_load_probe_artifacts_rejects_invalid_weight_shape_dimensions(tmp_path):
     probe_dir = tmp_path / "probe"
     probe_dir.mkdir()

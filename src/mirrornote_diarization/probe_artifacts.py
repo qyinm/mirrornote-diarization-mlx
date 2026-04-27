@@ -40,9 +40,9 @@ def _validate_metadata(metadata: Any) -> dict[str, Any]:
     if not isinstance(metadata, dict):
         raise ValueError("metadata.json must contain an object")
 
-    weight_shapes = metadata.get("weightShapes")
-    if weight_shapes is None:
+    if "weightShapes" not in metadata:
         return metadata
+    weight_shapes = metadata["weightShapes"]
     if not isinstance(weight_shapes, dict):
         raise ValueError("weightShapes must be an object")
 
