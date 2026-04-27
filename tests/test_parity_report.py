@@ -1,3 +1,4 @@
+import json
 import math
 
 import numpy as np
@@ -9,6 +10,7 @@ from mirrornote_diarization.parity_report import (
     compute_metrics,
     validate_report_dict,
 )
+from mirrornote_diarization.segmentation_parity import main
 
 
 def test_compute_metrics_for_identical_arrays_passes() -> None:
@@ -78,6 +80,34 @@ def test_report_dict_contains_required_fields() -> None:
     assert payload["referenceProvider"] == "pyannote-3.1-segmentation-pytorch"
     assert payload["candidateProvider"] == "pyannote-3.1-segmentation-mlx"
     assert payload["passed"] is True
+
+
+def test_cli_validate_report_accepts_valid_report(tmp_path, capsys) -> None:
+    report = ParityReport(
+        reference_provider="pyannote-3.1-segmentation-pytorch",
+        candidate_provider="pyannote-3.1-segmentation-mlx",
+        audio_chunk={
+            "source": "fixtures/single-speaker/system-track.wav",
+            "startTimeSeconds": 0.0,
+            "durationSeconds": 10.0,
+            "sampleRate": 16000,
+        },
+        shape={"reference": [1, 3], "candidate": [1, 3], "matches": True},
+        dtype={"reference": "float32", "candidate": "float32"},
+        mean_abs_error=0.0,
+        max_abs_error=0.0,
+        cosine_similarity=1.0,
+        thresholds=DEFAULT_THRESHOLDS,
+        passed=True,
+    )
+    report_path = tmp_path / "parity-report.json"
+    report_path.write_text(json.dumps(report.to_dict()), encoding="utf-8")
+
+    exit_code = main(["segmentation", "validate-report", str(report_path)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "valid parity report" in captured.out
 
 
 def test_validate_report_dict_requires_thresholds() -> None:
