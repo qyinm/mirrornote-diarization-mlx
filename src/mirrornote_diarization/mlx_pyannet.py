@@ -439,6 +439,14 @@ class MlxPyanNetSegmentation:
 
     def _forward_impl(self, waveform: Any) -> Any:
         import mlx.core as mx
+        fast_context = contextlib.nullcontext
+        if self._fast_math:
+            try:
+                from mlx.core.fast import fast as mx_fast
+            except Exception:  # pragma: no cover - fallback for older MLX module layouts
+                mx_fast = None
+            if mx_fast is not None:
+                fast_context = mx_fast
 
         if tuple(waveform.shape) != PYANNET_EXPECTED_WAVEFORM_SHAPE:
             raise ValueError(
@@ -451,7 +459,7 @@ class MlxPyanNetSegmentation:
         elif waveform.dtype not in (mx.float32, mx.float16):
             waveform = waveform.astype(mx.float32)
 
-        with (mx.fast() if self._fast_math else contextlib.nullcontext()):
+        with fast_context():
             x = self._sincnet(waveform)
             x = self._lstm(x)
             x = self.linear_head(x)
