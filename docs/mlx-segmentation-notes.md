@@ -13,9 +13,23 @@ This document records facts discovered while implementing M4A segmentation parit
 
 ## Probe Results
 
-No probe has been run yet.
+A real probe has been run with `artifacts/audio/librispeech-dummy-probe/audio.wav`.
+The generated tensor artifacts stay under ignored `artifacts/` paths.
 
-The first real probe should add a generated JSON artifact under `artifacts/` or `reports/segmentation-parity/`. Do not inline large tensor values in this document.
+Summary:
+
+- modelClass: `pyannote.audio.models.segmentation.PyanNet.PyanNet`
+- sampleRate: `16000`
+- chunkDurationSeconds: `10.0`
+- outputShape: `[1, 589, 7]`
+- moduleCount: `22`
+- parameterCount: `1473515`
+
+The first MLX target is the segmentation submodel only:
+
+```text
+SincNet frontend -> 4-layer bidirectional LSTM -> Linear(256, 128) -> Linear(128, 128) -> Classifier(128, 7) -> activation
+```
 
 ## Reference Snapshot Procedure
 
