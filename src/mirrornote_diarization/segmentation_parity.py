@@ -18,6 +18,7 @@ from mirrornote_diarization.parity_report import (
     compute_metrics,
     validate_report_dict,
 )
+from mirrornote_diarization.probe_artifacts import ProbeArtifacts, load_probe_artifacts
 from mirrornote_diarization.pyannote_probe import (
     require_pyannote_enabled,
     run_pyannote_probe,
@@ -49,6 +50,12 @@ def build_parser() -> argparse.ArgumentParser:
     probe_parser.add_argument("--start-seconds", type=float, default=0.0)
     probe_parser.add_argument("--duration-seconds", type=float, default=10.0)
 
+    inspect_probe_parser = segmentation_subparsers.add_parser(
+        "inspect-probe", help="Inspect saved pyannote segmentation probe artifacts"
+    )
+    inspect_probe_parser.add_argument("probe_dir", type=Path)
+    inspect_probe_parser.add_argument("--json-out", type=Path)
+
     compare_npz_parser = segmentation_subparsers.add_parser(
         "compare-npz", help="Compare saved segmentation reference and candidate arrays"
     )
@@ -75,6 +82,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return _validate_report(args.report)
             if args.segmentation_command == "probe":
                 return _probe(args)
+            if args.segmentation_command == "inspect-probe":
+                return _inspect_probe(args)
             if args.segmentation_command == "compare-npz":
                 return _compare_npz(args)
             parser.error("unsupported segmentation command")
@@ -130,6 +139,38 @@ def _probe(args: argparse.Namespace) -> int:
 
     print(f"wrote pyannote probe artifacts: {args.out}")
     return 0
+
+
+def _inspect_probe(args: argparse.Namespace) -> int:
+    try:
+        artifacts = load_probe_artifacts(args.probe_dir)
+        summary = _build_probe_summary(artifacts)
+        if args.json_out is not None:
+            args.json_out.parent.mkdir(parents=True, exist_ok=True)
+            args.json_out.write_text(
+                json.dumps(summary, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        print(f"probe inspection failed: {exc}", file=sys.stderr)
+        return 1
+
+    for key, value in summary.items():
+        print(f"{key}: {value}")
+    return 0
+
+
+def _build_probe_summary(artifacts: ProbeArtifacts) -> dict[str, object]:
+    metadata = artifacts.metadata
+    return {
+        "modelClass": metadata.get("modelClass"),
+        "sampleRate": metadata.get("sampleRate"),
+        "chunkDurationSeconds": metadata.get("chunkDurationSeconds"),
+        "frameResolutionSeconds": metadata.get("frameResolutionSeconds"),
+        "outputShape": [int(dimension) for dimension in artifacts.reference_output.shape],
+        "moduleCount": artifacts.module_count,
+        "parameterCount": artifacts.parameter_count,
+    }
 
 
 def _compare_npz(args: argparse.Namespace) -> int:
