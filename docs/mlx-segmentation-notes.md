@@ -71,7 +71,13 @@ The mapping is strict: every expected reference key must exist and match the obs
 
 ## Unsupported Operations
 
-No unsupported MLX operations confirmed yet.
+The executable MLX candidate path exists, but numerical parity is not complete until these components are implemented and verified independently:
+
+- SincNet waveform normalization, sinc filterbank construction, convolution, pooling, and normalization.
+- Four-layer bidirectional LSTM gate math with PyTorch-compatible gate ordering.
+- Final activation behavior after classifier output.
+
+The next plan should target SincNet first because it determines the LSTM input shape `[batch, frames, 60]`. The following plan should target the bidirectional LSTM stack using a saved SincNet output fixture.
 
 ## Threshold Changes
 
