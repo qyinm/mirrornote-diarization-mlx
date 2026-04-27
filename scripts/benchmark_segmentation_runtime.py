@@ -98,7 +98,7 @@ def _bench_mlx(
     input_waveform = mx.array(waveform, dtype=input_dtype)
 
     if profile_stages:
-        model._compile_enabled = False
+        object.__setattr__(model, "_compile_enabled", False)
 
     for _ in range(max(1, warmup)):
         if profile_stages:
