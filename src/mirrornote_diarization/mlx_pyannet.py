@@ -147,10 +147,9 @@ def _instance_norm1d(x: Any, weight: Any, bias: Any) -> Any:
 
 def _lstm_one_direction(
     inputs: Any,
-    weight_ih: Any,
-    weight_hh: Any,
-    bias_ih: Any,
-    bias_hh: Any,
+    weight_ih_t: Any,
+    weight_hh_t: Any,
+    bias: Any,
     *,
     reverse: bool,
 ) -> Any:
@@ -161,33 +160,27 @@ def _lstm_one_direction(
         x = x[:, ::-1, :]
 
     batch_size, num_frames, in_dim = x.shape
-    hidden_size = weight_hh.shape[1]
-    if weight_ih.shape != (4 * hidden_size, in_dim):
+    hidden_size = int(weight_ih_t.shape[1]) // 4
+    if weight_ih_t.shape != (in_dim, 4 * hidden_size):
         raise ValueError(
-            "invalid LSTM weight_ih shape "
-            f"{tuple(weight_ih.shape)} for in_dim={in_dim}, hidden_size={hidden_size}"
+            "invalid transposed LSTM input projection shape "
+            f"{tuple(weight_ih_t.shape)} for in_dim={in_dim}, hidden_size={hidden_size}"
         )
-    if weight_hh.shape != (4 * hidden_size, hidden_size):
+    if weight_hh_t.shape != (hidden_size, 4 * hidden_size):
         raise ValueError(
-            "invalid LSTM weight_hh shape "
-            f"{tuple(weight_hh.shape)} for hidden_size={hidden_size}"
+            "invalid transposed LSTM recurrent projection shape "
+            f"{tuple(weight_hh_t.shape)} for hidden_size={hidden_size}"
         )
 
-    w_ih_t = mx.transpose(weight_ih)
-    w_hh_t = mx.transpose(weight_hh)
-    bias = bias_ih.reshape(1, 4 * hidden_size) + bias_hh.reshape(
-        1,
-        4 * hidden_size,
-    )
+    projected = mx.matmul(x, weight_ih_t) + bias
 
-    projected = mx.matmul(x, w_ih_t) + bias
-
-    h = mx.zeros((batch_size, hidden_size), dtype=mx.float32)
-    c = mx.zeros((batch_size, hidden_size), dtype=mx.float32)
+    dtype = x.dtype
+    h = mx.zeros((batch_size, hidden_size), dtype=dtype)
+    c = mx.zeros((batch_size, hidden_size), dtype=dtype)
     outputs: list[Any] = []
 
     for t in range(int(num_frames)):
-        gates = projected[:, t, :] + mx.matmul(h, w_hh_t)
+        gates = projected[:, t, :] + mx.matmul(h, weight_hh_t)
 
         i = gates[:, :hidden_size]
         f = gates[:, hidden_size : 2 * hidden_size]
@@ -227,7 +220,7 @@ def _lstm_one_direction_nn(
 
 def _lstm_bidirectional_layer(
     inputs: Any,
-    lstm_specs: tuple[tuple[Any, Any, Any, Any], tuple[Any, Any, Any, Any]],
+    lstm_specs: tuple[tuple[Any, Any, Any], tuple[Any, Any, Any]],
 ) -> Any:
     import mlx.core as mx
 
@@ -236,18 +229,16 @@ def _lstm_bidirectional_layer(
 
     forward = _lstm_one_direction(
         inputs,
-        weight_ih=forward_weights[0],
-        weight_hh=forward_weights[1],
-        bias_ih=forward_weights[2],
-        bias_hh=forward_weights[3],
+        weight_ih_t=forward_weights[0],
+        weight_hh_t=forward_weights[1],
+        bias=forward_weights[2],
         reverse=False,
     )
     reverse = _lstm_one_direction(
         inputs,
-        weight_ih=reverse_weights[0],
-        weight_hh=reverse_weights[1],
-        bias_ih=reverse_weights[2],
-        bias_hh=reverse_weights[3],
+        weight_ih_t=reverse_weights[0],
+        weight_hh_t=reverse_weights[1],
+        bias=reverse_weights[2],
         reverse=True,
     )
     return mx.concatenate([forward, reverse], axis=2)
@@ -286,6 +277,10 @@ class MlxPyanNetSegmentation:
     _use_mlx_lstm: bool = field(default=False, init=False, repr=False)
     _lstm_specs: tuple[
         tuple[tuple[Any, Any, Any, Any], tuple[Any, Any, Any, Any]],
+        ...,
+    ] = field(default_factory=tuple, init=False, repr=False)
+    _lstm_specs_fast: tuple[
+        tuple[tuple[Any, Any, Any], tuple[Any, Any, Any]],
         ...,
     ] = field(default_factory=tuple, init=False, repr=False)
     _lstm_modules: tuple[tuple[Any, Any], ...] = field(
@@ -380,6 +375,31 @@ class MlxPyanNetSegmentation:
                 for layer in range(4)
             ),
         )
+        object.__setattr__(
+            model,
+            "_lstm_specs_fast",
+            tuple(
+                (
+                    (
+                        mx_reference_weights[f"lstm.layers.{layer}.forward.weight_ih"].T,
+                        mx_reference_weights[f"lstm.layers.{layer}.forward.weight_hh"].T,
+                        (mx_reference_weights[f"lstm.layers.{layer}.forward.bias_ih"]
+                         + mx_reference_weights[f"lstm.layers.{layer}.forward.bias_hh"]).reshape(
+                            1, -1
+                        ),
+                    ),
+                    (
+                        mx_reference_weights[f"lstm.layers.{layer}.reverse.weight_ih"].T,
+                        mx_reference_weights[f"lstm.layers.{layer}.reverse.weight_hh"].T,
+                        (mx_reference_weights[f"lstm.layers.{layer}.reverse.bias_ih"]
+                         + mx_reference_weights[f"lstm.layers.{layer}.reverse.bias_hh"]).reshape(
+                            1, -1
+                        ),
+                    ),
+                )
+                for layer in range(4)
+            ),
+        )
         use_mlx_lstm = os.getenv("PYANNOTE_MLX_LSTM_BACKEND", "nn").strip().lower() != "legacy"
         object.__setattr__(model, "_use_mlx_lstm", use_mlx_lstm)
         if use_mlx_lstm:
@@ -438,6 +458,8 @@ class MlxPyanNetSegmentation:
 
         if self._use_fp16:
             waveform = waveform.astype(mx.float16)
+        elif waveform.dtype not in (mx.float32, mx.float16):
+            waveform = waveform.astype(mx.float32)
 
         with (mx.fast() if self._fast_math else contextlib.nullcontext()):
             x = self._sincnet(waveform)
@@ -505,7 +527,7 @@ class MlxPyanNetSegmentation:
             else:
                 outputs = _lstm_bidirectional_layer(
                     outputs,
-                    lstm_specs=self._lstm_specs[layer],
+                    lstm_specs=self._lstm_specs_fast[layer],
                 )
 
         return outputs

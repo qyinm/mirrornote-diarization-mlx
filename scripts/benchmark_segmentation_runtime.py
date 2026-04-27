@@ -51,6 +51,16 @@ def _to_finite_ms(value: float) -> float:
     return float(value) if float(value) > 0 else 0.0
 
 
+def _bench_device() -> str:
+    import torch
+
+    if hasattr(torch, "mps") and torch.backends.mps.is_available():
+        return "mps"
+    if hasattr(torch, "cuda") and torch.cuda.is_available():
+        return "cuda"
+    return "cpu"
+
+
 def _to_json(obj: Any) -> Any:
     if isinstance(obj, np.ndarray):
         return obj.tolist()
@@ -77,7 +87,8 @@ def _bench_mlx(
 
     reference_weights = load_npz_weights(weights)
     model = MlxPyanNetSegmentation.from_reference_weights(reference_weights)
-    input_waveform = mx.array(waveform, dtype=mx.float32)
+    input_dtype = mx.float16 if model._use_fp16 else mx.float32
+    input_waveform = mx.array(waveform, dtype=input_dtype)
 
     for _ in range(max(1, warmup)):
         output = model(input_waveform)
@@ -124,7 +135,9 @@ def _bench_pyannote(
 
     model = getattr(segmentation, "model", segmentation)
     model.eval()
-    tensor = torch.from_numpy(waveform.astype(np.float32)).to(torch.float32)
+    device = _bench_device()
+    tensor = torch.from_numpy(waveform.astype(np.float32)).to(device=device, dtype=torch.float32)
+    model = model.to(device)
 
     with torch.no_grad():
         for _ in range(max(1, warmup)):
@@ -143,7 +156,9 @@ def _bench_pyannote(
             _synchronize_torch()
             latencies_ms.append(_to_finite_ms((time.perf_counter() - start) * 1000.0))
 
-    return _summary_stats("pyannote-3.1-segmentation-pytorch", latencies_ms)
+    summary = _summary_stats("pyannote-3.1-segmentation-pytorch", latencies_ms)
+    summary["device"] = device
+    return summary
 
 
 def _summary_stats(provider: str, latencies_ms: list[float]) -> dict[str, Any]:
@@ -334,6 +349,7 @@ def main() -> int:
 
     summary["environment"] = {
         "platform": platform.platform(),
+        "benchmarkTorchDevice": _bench_device() if not args.no_pyannote else "cpu",
     }
 
     summary["providers"].sort(key=lambda item: item.get("provider", ""))
