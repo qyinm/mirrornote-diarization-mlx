@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import numpy as np
+
+from mirrornote_diarization.pyannet_contract import PYANNET_ARCHITECTURE_NAME
+
 
 class UnsupportedArchitectureError(RuntimeError):
     """Raised when an MLX segmentation architecture is not implemented yet."""
@@ -30,5 +34,16 @@ class MlxSegmentationConfig:
         }
 
 
-def build_mlx_segmentation(config: MlxSegmentationConfig) -> None:
+def build_mlx_segmentation(
+    config: MlxSegmentationConfig,
+    reference_weights: dict[str, np.ndarray] | None = None,
+) -> object:
+    if config.architecture_name == PYANNET_ARCHITECTURE_NAME:
+        if reference_weights is None:
+            raise ValueError("reference_weights are required for PyanNet MLX runtime")
+
+        from mirrornote_diarization.mlx_pyannet import MlxPyanNetSegmentation
+
+        return MlxPyanNetSegmentation.from_reference_weights(reference_weights)
+
     raise UnsupportedArchitectureError(config.architecture_name)
