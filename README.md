@@ -120,3 +120,34 @@ uv run --extra dev mirrornote-diarize segmentation compare-npz \
 ```
 
 The current candidate is shape-correct only. `compare-npz` is expected to write a report and return nonzero until numerical parity work lands.
+
+## Runtime Benchmark (10-second chunk)
+
+Run the runtime comparison between the MLX candidate and the reference pyannote segmentation model:
+
+```bash
+uv run python scripts/benchmark_segmentation_runtime.py --runs 12 --warmup 3
+```
+
+Current environment and settings:
+
+- Input: `artifacts/probe/librispeech-dummy-probe/waveform-input.npz` (10.0 s, 16,000 Hz mono)
+- Warm-up: 3 runs
+- Measurement runs: 12
+- Device/platform: `macOS-26.3-arm64-arm-64bit`
+
+Result files:
+
+- `reports/segmentation-benchmark/runtime-benchmark.json`
+- `reports/segmentation-benchmark/runtime-benchmark.png`
+
+Summary (mean across measured runs):
+
+| Provider | Mean (ms) | Median (ms) | p95 (ms) | Real-time factor |
+|---|---:|---:|---:|---:|
+| `pyannote-3.1-segmentation-pytorch` | `89.98` | `87.45` | `101.19` | `111.14x` |
+| `pyannote-3.1-segmentation-mlx` | `517.76` | `504.13` | `589.10` | `19.31x` |
+
+Current interpretation: MLX path is currently slower than PyTorch in this run (`pytorchMeanMs / mlxMeanMs = 0.174`, so `pyannote` is ~`5.75x` faster than MLX on this machine for this chunk).
+
+![Segmentation runtime benchmark](reports/segmentation-benchmark/runtime-benchmark.png)
