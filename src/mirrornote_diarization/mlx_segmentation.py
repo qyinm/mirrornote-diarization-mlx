@@ -6,7 +6,12 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from mirrornote_diarization.pyannet_contract import PYANNET_ARCHITECTURE_NAME
+from mirrornote_diarization.pyannet_contract import (
+    PYANNET_ARCHITECTURE_NAME,
+    PYANNET_CHUNK_DURATION_SECONDS,
+    PYANNET_EXPECTED_OUTPUT_SHAPE,
+    PYANNET_SAMPLE_RATE,
+)
 
 
 class UnsupportedArchitectureError(RuntimeError):
@@ -39,6 +44,8 @@ def build_mlx_segmentation(
     reference_weights: dict[str, np.ndarray] | None = None,
 ) -> object:
     if config.architecture_name == PYANNET_ARCHITECTURE_NAME:
+        _validate_pyannet_config(config)
+
         if reference_weights is None:
             raise ValueError("reference_weights are required for PyanNet MLX runtime")
 
@@ -47,3 +54,19 @@ def build_mlx_segmentation(
         return MlxPyanNetSegmentation.from_reference_weights(reference_weights)
 
     raise UnsupportedArchitectureError(config.architecture_name)
+
+
+def _validate_pyannet_config(config: MlxSegmentationConfig) -> None:
+    expected_fields: dict[str, int | float] = {
+        "sample_rate": PYANNET_SAMPLE_RATE,
+        "chunk_duration_seconds": PYANNET_CHUNK_DURATION_SECONDS,
+        "output_classes": PYANNET_EXPECTED_OUTPUT_SHAPE[2],
+    }
+
+    for field_name, expected_value in expected_fields.items():
+        actual_value = getattr(config, field_name)
+        if actual_value != expected_value:
+            raise ValueError(
+                "PyanNet MLX config mismatch for "
+                f"{field_name}: expected {expected_value}, got {actual_value}"
+            )
