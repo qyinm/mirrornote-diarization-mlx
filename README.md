@@ -44,3 +44,27 @@ Links:
 
 - [Identity](docs/IDENTITY.md)
 - [Implementation Plan](docs/IMPLEMENTATION_PLAN.md)
+
+## M4A Segmentation Parity
+
+The first MLX milestone is segmentation parity, not full diarization. The initial goal is to match the segmentation component against the reference path before expanding into the rest of the diarization pipeline.
+
+Run the baseline test suite with:
+
+```bash
+uv run pytest
+```
+
+Validate a segmentation parity report with:
+
+```bash
+uv run mirrornote-diarize segmentation validate-report reports/segmentation-parity/example.json
+```
+
+After the offline contracts are passing, run the gated pyannote probe with:
+
+```bash
+MIRRORNOTE_RUN_PYANNOTE_PROBE=1 HUGGINGFACE_ACCESS_TOKEN="$HUGGINGFACE_ACCESS_TOKEN" uv run mirrornote-diarize segmentation probe --audio fixtures/single-speaker/system-track.wav --out artifacts/probe
+```
+
+Generated probe artifacts should not be committed unless they are small deterministic metadata. Larger generated artifacts belong under `artifacts/` or `reports/` for local inspection only.
