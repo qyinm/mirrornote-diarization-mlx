@@ -19,7 +19,7 @@ def test_load_probe_artifacts_reads_metadata_and_reference_output(tmp_path):
         "outputShape": [1, 589, 7],
     }
     (probe_dir / "metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
-    np.savez(probe_dir / "reference-output.npz", output=np.zeros((1, 589, 7), dtype=np.float32))
+    np.savez(probe_dir / "reference-output.npz", output=np.zeros((1, 589, 7), dtype=np.float64))
 
     artifacts = load_probe_artifacts(probe_dir)
 
