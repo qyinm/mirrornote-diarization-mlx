@@ -73,4 +73,10 @@ Run the gated pyannote segmentation probe with:
 MIRRORNOTE_RUN_PYANNOTE_PROBE=1 HUGGINGFACE_ACCESS_TOKEN="$HUGGINGFACE_ACCESS_TOKEN" uv run mirrornote-diarize segmentation probe --audio fixtures/single-speaker/system-track.wav --out artifacts/probe
 ```
 
+Inspect a saved segmentation probe with:
+
+```bash
+uv run mirrornote-diarize segmentation inspect-probe artifacts/probe --json-out reports/segmentation-parity/probe-summary.json
+```
+
 The probe command is registered, but it is intentionally gated by `MIRRORNOTE_RUN_PYANNOTE_PROBE=1` and `HUGGINGFACE_ACCESS_TOKEN`. Generated probe artifacts should not be committed unless they are small, deterministic metadata files.
