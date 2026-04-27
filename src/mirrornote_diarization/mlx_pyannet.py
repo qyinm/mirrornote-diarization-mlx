@@ -161,16 +161,6 @@ def _lstm_one_direction(
 
     batch_size, num_frames, in_dim = x.shape
     hidden_size = int(weight_ih_t.shape[1]) // 4
-    if weight_ih_t.shape != (in_dim, 4 * hidden_size):
-        raise ValueError(
-            "invalid transposed LSTM input projection shape "
-            f"{tuple(weight_ih_t.shape)} for in_dim={in_dim}, hidden_size={hidden_size}"
-        )
-    if weight_hh_t.shape != (hidden_size, 4 * hidden_size):
-        raise ValueError(
-            "invalid transposed LSTM recurrent projection shape "
-            f"{tuple(weight_hh_t.shape)} for hidden_size={hidden_size}"
-        )
 
     projected = mx.matmul(x, weight_ih_t) + bias
 
