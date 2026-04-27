@@ -298,23 +298,27 @@ def main() -> int:
             )
 
     ok_entries = [entry for entry in summary["providers"] if entry["status"] == "ok"]
-    if (
-        len(ok_entries) >= 2
-        and ok_entries[0]["provider"]
-        and ok_entries[1]["provider"]
-    ):
+    if len(ok_entries) >= 2:
         pytorch = next(
-            entry for entry in ok_entries if entry["provider"] == "pyannote-3.1-segmentation-pytorch"
+            entry
+            for entry in ok_entries
+            if entry["provider"] == "pyannote-3.1-segmentation-pytorch"
         )
         mlx = next(
-            entry for entry in ok_entries if entry["provider"] == "pyannote-3.1-segmentation-mlx"
+            entry
+            for entry in ok_entries
+            if entry["provider"] == "pyannote-3.1-segmentation-mlx"
         )
         audio_seconds = summary["audio"]["durationSeconds"]
         summary["comparison"] = {
             "pyannoteMeanMs": _to_finite_ms(pytorch["meanMs"]),
             "mlxMeanMs": _to_finite_ms(mlx["meanMs"]),
-            "pytorchFasterThanMlxX": _to_finite_ms(pytorch["meanMs"] / mlx["meanMs"]) if mlx["meanMs"] else None,
-            "mlxSpeedupVsPyannoteX": _to_finite_ms(mlx["meanMs"] / pytorch["meanMs"]) if pytorch["meanMs"] else None,
+            "pytorchFasterThanMlxX": _to_finite_ms(pytorch["meanMs"] / mlx["meanMs"])
+            if mlx["meanMs"]
+            else None,
+            "mlxSpeedupVsPyannoteX": _to_finite_ms(mlx["meanMs"] / pytorch["meanMs"])
+            if pytorch["meanMs"]
+            else None,
             "pytorchRealTimeFactor": _to_finite_ms(audio_seconds / (pytorch["meanMs"] / 1000.0))
             if pytorch["meanMs"]
             else None,
@@ -336,6 +340,10 @@ def main() -> int:
     args.report.write_text(json.dumps(summary, indent=2, default=_to_json) + "\n", encoding="utf-8")
     print(f"wrote runtime benchmark: {args.report}")
     print(f"wrote runtime benchmark plot: {args.plot}")
+    if "comparison" in summary:
+        print("metric_name: mlx_speedup_vs_pyannote_mean_time_x")
+        print(f"metric_value: {summary['comparison']['pytorchFasterThanMlxX']}")
+        print("metric_unit: x")
 
     return 0
 

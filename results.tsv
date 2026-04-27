@@ -1,0 +1,2 @@
+commit	metric_name	metric_value	unit	status	description
+e6d2e52a4158a092314e6fbdd734cd6e77507e69	pytorch_faster_than_mlx_x	0.17378080006752888	x	baseline	Initial baseline before optimization loop

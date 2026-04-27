@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -77,10 +77,10 @@ def _sinc_filters(low_hz: np.ndarray, band_hz: np.ndarray) -> np.ndarray:
 
 def _conv1d_nlc(
     waveform: Any,
-    weight: np.ndarray,
+    weight: Any,
     *,
     stride: int = 1,
-    bias: np.ndarray | None = None,
+    bias: Any | None = None,
 ) -> Any:
     import mlx.core as mx
 
@@ -115,6 +115,10 @@ def _max_pool1d(x: Any, kernel_size: int, stride: int) -> Any:
 
     x_len = int(x.shape[1])
     output_len = (x_len - kernel_size) // stride + 1
+    if kernel_size == stride and x_len % kernel_size == 0:
+        trimmed = x[:, : output_len * kernel_size, :]
+        reshaped = trimmed.reshape(int(x.shape[0]), output_len, kernel_size, int(x.shape[2]))
+        return mx.max(reshaped, axis=2)
 
     pooled: list[Any] = []
     for offset in range(0, output_len * stride, stride):
@@ -123,7 +127,7 @@ def _max_pool1d(x: Any, kernel_size: int, stride: int) -> Any:
     return mx.stack(pooled, axis=1)
 
 
-def _instance_norm1d(x: Any, weight: np.ndarray, bias: np.ndarray) -> Any:
+def _instance_norm1d(x: Any, weight: Any, bias: Any) -> Any:
     import mlx.core as mx
 
     channels = int(weight.shape[0])
@@ -135,17 +139,17 @@ def _instance_norm1d(x: Any, weight: np.ndarray, bias: np.ndarray) -> Any:
     denominator = mx.sqrt(var + _INSTANCE_NORM_EPSILON)
     x = (x - mean) / denominator
 
-    w = _to_mx_array(weight).reshape(1, 1, channels)
-    b = _to_mx_array(bias).reshape(1, 1, channels)
+    w = weight.reshape(1, 1, channels)
+    b = bias.reshape(1, 1, channels)
     return x * w + b
 
 
 def _lstm_one_direction(
     inputs: Any,
-    weight_ih: np.ndarray,
-    weight_hh: np.ndarray,
-    bias_ih: np.ndarray,
-    bias_hh: np.ndarray,
+    weight_ih: Any,
+    weight_hh: Any,
+    bias_ih: Any,
+    bias_hh: Any,
     *,
     reverse: bool,
 ) -> Any:
@@ -168,19 +172,21 @@ def _lstm_one_direction(
             f"{tuple(weight_hh.shape)} for hidden_size={hidden_size}"
         )
 
-    w_ih = _to_mx_array(weight_ih)
-    w_hh = _to_mx_array(weight_hh)
-    b_ih = _to_mx_array(bias_ih).reshape(1, 4 * hidden_size)
-    b_hh = _to_mx_array(bias_hh).reshape(1, 4 * hidden_size)
+    w_ih_t = mx.transpose(weight_ih)
+    w_hh_t = mx.transpose(weight_hh)
+    bias = bias_ih.reshape(1, 4 * hidden_size) + bias_hh.reshape(
+        1,
+        4 * hidden_size,
+    )
+
+    projected = mx.matmul(x, w_ih_t) + bias
 
     h = mx.zeros((batch_size, hidden_size), dtype=mx.float32)
     c = mx.zeros((batch_size, hidden_size), dtype=mx.float32)
     outputs: list[Any] = []
 
     for t in range(int(num_frames)):
-        xt = x[:, t, :]
-        gates = mx.matmul(xt, mx.transpose(w_ih)) + mx.matmul(h, mx.transpose(w_hh))
-        gates = gates + b_ih + b_hh
+        gates = projected[:, t, :] + mx.matmul(h, w_hh_t)
 
         i = gates[:, :hidden_size]
         f = gates[:, hidden_size : 2 * hidden_size]
@@ -202,27 +208,64 @@ def _lstm_one_direction(
     return output
 
 
+def _lstm_one_direction_nn(
+    inputs: Any,
+    lstm_module: Any,
+    *,
+    reverse: bool,
+) -> Any:
+    x = _to_mx_array(inputs)
+    if reverse:
+        x = x[:, ::-1, :]
+
+    output, _ = lstm_module(x)
+    if reverse:
+        return output[:, ::-1, :]
+    return output
+
+
 def _lstm_bidirectional_layer(
     inputs: Any,
-    layer: int,
-    weights: Mapping[str, np.ndarray],
+    lstm_specs: tuple[tuple[Any, Any, Any, Any], tuple[Any, Any, Any, Any]],
 ) -> Any:
     import mlx.core as mx
 
+    forward_weights = lstm_specs[0]
+    reverse_weights = lstm_specs[1]
+
     forward = _lstm_one_direction(
         inputs,
-        weight_ih=weights[f"lstm.layers.{layer}.forward.weight_ih"],
-        weight_hh=weights[f"lstm.layers.{layer}.forward.weight_hh"],
-        bias_ih=weights[f"lstm.layers.{layer}.forward.bias_ih"],
-        bias_hh=weights[f"lstm.layers.{layer}.forward.bias_hh"],
+        weight_ih=forward_weights[0],
+        weight_hh=forward_weights[1],
+        bias_ih=forward_weights[2],
+        bias_hh=forward_weights[3],
         reverse=False,
     )
     reverse = _lstm_one_direction(
         inputs,
-        weight_ih=weights[f"lstm.layers.{layer}.reverse.weight_ih"],
-        weight_hh=weights[f"lstm.layers.{layer}.reverse.weight_hh"],
-        bias_ih=weights[f"lstm.layers.{layer}.reverse.bias_ih"],
-        bias_hh=weights[f"lstm.layers.{layer}.reverse.bias_hh"],
+        weight_ih=reverse_weights[0],
+        weight_hh=reverse_weights[1],
+        bias_ih=reverse_weights[2],
+        bias_hh=reverse_weights[3],
+        reverse=True,
+    )
+    return mx.concatenate([forward, reverse], axis=2)
+
+
+def _lstm_bidirectional_layer_nn(
+    inputs: Any,
+    lstm_modules: tuple[Any, Any],
+) -> Any:
+    import mlx.core as mx
+
+    forward = _lstm_one_direction_nn(
+        inputs,
+        lstm_module=lstm_modules[0],
+        reverse=False,
+    )
+    reverse = _lstm_one_direction_nn(
+        inputs,
+        lstm_module=lstm_modules[1],
         reverse=True,
     )
     return mx.concatenate([forward, reverse], axis=2)
@@ -236,12 +279,34 @@ class MlxPyanNetSegmentation:
     output_classes: int = PYANNET_EXPECTED_OUTPUT_SHAPE[2]
     sample_rate: int = PYANNET_SAMPLE_RATE
     chunk_duration_seconds: float = PYANNET_CHUNK_DURATION_SECONDS
+    _mx_weights: dict[str, Any] = field(default_factory=dict, init=False, repr=False)
+    _compiled_call: Any | None = field(default=None, init=False, repr=False)
+    _compile_enabled: bool = field(default=True, init=False, repr=False)
+    _use_mlx_lstm: bool = field(default=False, init=False, repr=False)
+    _lstm_specs: tuple[
+        tuple[tuple[Any, Any, Any, Any], tuple[Any, Any, Any, Any]],
+        ...,
+    ] = field(default_factory=tuple, init=False, repr=False)
+    _lstm_modules: tuple[tuple[Any, Any], ...] = field(
+        default_factory=tuple,
+        init=False,
+        repr=False,
+    )
+    _dense_weight_transposes: dict[str, Any] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+    )
+    _cached_sinc_filters: Any = field(default=None, init=False, repr=False)
 
     @classmethod
     def from_reference_weights(
         cls,
         reference_weights: Mapping[str, np.ndarray],
     ) -> MlxPyanNetSegmentation:
+        import os
+        import mlx.core as mx
+
         result = validate_weight_mapping(
             reference_weights,
             build_pyannet_mapping_rules(),
@@ -254,9 +319,103 @@ class MlxPyanNetSegmentation:
             for candidate_key, reference_key in result.mapped.items()
         }
 
-        return cls(
-            reference_weights=mapped,
+        model = cls(reference_weights=mapped)
+        mx_reference_weights = {
+            candidate_key: mx.array(weights, dtype=mx.float32)
+            for candidate_key, weights in mapped.items()
+        }
+        object.__setattr__(
+            model,
+            "_mx_weights",
+            mx_reference_weights,
         )
+        object.__setattr__(
+            model,
+            "_dense_weight_transposes",
+            {
+                "linear.layers.0.weight_t": mx_reference_weights["linear.layers.0.weight"].T,
+                "linear.layers.1.weight_t": mx_reference_weights["linear.layers.1.weight"].T,
+                "classifier.weight_t": mx_reference_weights["classifier.weight"].T,
+            },
+        )
+        object.__setattr__(
+            model,
+            "_lstm_specs",
+            tuple(
+                (
+                    (
+                        mx_reference_weights[f"lstm.layers.{layer}.forward.weight_ih"],
+                        mx_reference_weights[f"lstm.layers.{layer}.forward.weight_hh"],
+                        mx_reference_weights[f"lstm.layers.{layer}.forward.bias_ih"],
+                        mx_reference_weights[f"lstm.layers.{layer}.forward.bias_hh"],
+                    ),
+                    (
+                        mx_reference_weights[f"lstm.layers.{layer}.reverse.weight_ih"],
+                        mx_reference_weights[f"lstm.layers.{layer}.reverse.weight_hh"],
+                        mx_reference_weights[f"lstm.layers.{layer}.reverse.bias_ih"],
+                        mx_reference_weights[f"lstm.layers.{layer}.reverse.bias_hh"],
+                    ),
+                )
+                for layer in range(4)
+            ),
+        )
+        use_mlx_lstm = os.getenv("PYANNOTE_MLX_LSTM_BACKEND", "nn").strip().lower() != "legacy"
+        object.__setattr__(model, "_use_mlx_lstm", use_mlx_lstm)
+        if use_mlx_lstm:
+            try:
+                import mlx.nn as nn
+
+                lstm_modules = []
+                for forward_weights, reverse_weights in model._lstm_specs:
+                    in_dim = int(forward_weights[0].shape[1])
+                    hidden_size = int(forward_weights[0].shape[0] // 4)
+                    forward_module = nn.LSTM(input_size=in_dim, hidden_size=hidden_size, bias=True)
+                    reverse_module = nn.LSTM(input_size=in_dim, hidden_size=hidden_size, bias=True)
+                    forward_module.Wx = forward_weights[0]
+                    forward_module.Wh = forward_weights[1]
+                    forward_module.bias = forward_weights[2] + forward_weights[3]
+                    reverse_module.Wx = reverse_weights[0]
+                    reverse_module.Wh = reverse_weights[1]
+                    reverse_module.bias = reverse_weights[2] + reverse_weights[3]
+                    lstm_modules.append((forward_module, reverse_module))
+
+                object.__setattr__(model, "_lstm_modules", tuple(lstm_modules))
+            except Exception:  # pragma: no cover - fallback when nn path unavailable in current runtime
+                object.__setattr__(model, "_use_mlx_lstm", False)
+        object.__setattr__(
+            model,
+            "_cached_sinc_filters",
+            mx.array(
+                _sinc_filters(
+                    mapped["sincnet.sinc_filterbank.low_hz"],
+                    mapped["sincnet.sinc_filterbank.band_hz"],
+                ),
+                dtype=mx.float32,
+            ),
+        )
+        object.__setattr__(
+            model,
+            "_compile_enabled",
+            os.getenv("PYANNOTE_MLX_COMPILE", "1") != "0",
+        )
+
+        return model
+
+    def _forward_impl(self, waveform: Any) -> Any:
+        import mlx.core as mx
+
+        if tuple(waveform.shape) != PYANNET_EXPECTED_WAVEFORM_SHAPE:
+            raise ValueError(
+                "PyanNet MLX waveform must have shape "
+                f"{PYANNET_EXPECTED_WAVEFORM_SHAPE}; got {tuple(waveform.shape)}"
+            )
+
+        x = self._sincnet(waveform)
+        x = self._lstm(x)
+        x = self.linear_head(x)
+        max_per_frame = mx.max(x, axis=2, keepdims=True)
+        x = x - max_per_frame
+        return x - mx.log(mx.sum(mx.exp(x), axis=2, keepdims=True))
 
     @property
     def _reference(self) -> dict[str, np.ndarray]:
@@ -268,38 +427,34 @@ class MlxPyanNetSegmentation:
         outputs = mx.transpose(waveform, (0, 2, 1))
         outputs = _instance_norm1d(
             outputs,
-            weight=self.reference_weights["sincnet.wav_norm.weight"],
-            bias=self.reference_weights["sincnet.wav_norm.bias"],
+            weight=self._mx_weights["sincnet.wav_norm.weight"],
+            bias=self._mx_weights["sincnet.wav_norm.bias"],
         )
 
         # First layer is SincNet filterbank (no bias).
-        sinc_filters = _sinc_filters(
-            self.reference_weights["sincnet.sinc_filterbank.low_hz"],
-            self.reference_weights["sincnet.sinc_filterbank.band_hz"],
-        )
         outputs = _conv1d_nlc(
             outputs,
-            sinc_filters,
+            self._cached_sinc_filters,
             stride=_SINCNET_STRIDE,
         )
         outputs = mx.abs(outputs)
         outputs = _max_pool1d(outputs, kernel_size=3, stride=3)
         outputs = _instance_norm1d(
             outputs,
-            weight=self.reference_weights["sincnet.norm.layers.0.weight"],
-            bias=self.reference_weights["sincnet.norm.layers.0.bias"],
+            weight=self._mx_weights["sincnet.norm.layers.0.weight"],
+            bias=self._mx_weights["sincnet.norm.layers.0.bias"],
         )
         outputs = _leaky_relu(outputs)
 
         for layer in range(2):
-            conv_weight = self.reference_weights[f"sincnet.conv.layers.{layer + 1}.weight"]
-            conv_bias = self.reference_weights[f"sincnet.conv.layers.{layer + 1}.bias"]
+            conv_weight = self._mx_weights[f"sincnet.conv.layers.{layer + 1}.weight"]
+            conv_bias = self._mx_weights[f"sincnet.conv.layers.{layer + 1}.bias"]
             outputs = _conv1d_nlc(outputs, conv_weight, bias=conv_bias)
             outputs = _max_pool1d(outputs, kernel_size=3, stride=3)
             outputs = _instance_norm1d(
                 outputs,
-                weight=self.reference_weights[f"sincnet.norm.layers.{layer + 1}.weight"],
-                bias=self.reference_weights[f"sincnet.norm.layers.{layer + 1}.bias"],
+                weight=self._mx_weights[f"sincnet.norm.layers.{layer + 1}.weight"],
+                bias=self._mx_weights[f"sincnet.norm.layers.{layer + 1}.bias"],
             )
             outputs = _leaky_relu(outputs)
 
@@ -308,48 +463,53 @@ class MlxPyanNetSegmentation:
     def _lstm(self, features: Any) -> Any:
         outputs = features
         for layer in range(4):
-            outputs = _lstm_bidirectional_layer(outputs, layer, self.reference_weights)
+            if self._use_mlx_lstm:
+                outputs = _lstm_bidirectional_layer_nn(
+                    outputs,
+                    lstm_modules=self._lstm_modules[layer],
+                )
+            else:
+                outputs = _lstm_bidirectional_layer(
+                    outputs,
+                    lstm_specs=self._lstm_specs[layer],
+                )
 
         return outputs
 
     def __call__(self, waveform: Any) -> Any:
         import mlx.core as mx
 
-        if tuple(waveform.shape) != PYANNET_EXPECTED_WAVEFORM_SHAPE:
-            raise ValueError(
-                "PyanNet MLX waveform must have shape "
-                f"{PYANNET_EXPECTED_WAVEFORM_SHAPE}; got {tuple(waveform.shape)}"
-            )
+        input_waveform = _to_mx_array(waveform)
+        if self._compile_enabled:
+            if self._compiled_call is None:
+                object.__setattr__(
+                    self,
+                    "_compiled_call",
+                    mx.compile(self._forward_impl),
+                )
+            return self._compiled_call(input_waveform)
 
-        x = _to_mx_array(waveform)
-        x = self._sincnet(x)
-
-        x = self._lstm(x)
-
-        x = self.linear_head(x)
-        max_per_frame = mx.max(x, axis=2, keepdims=True)
-        x = x - max_per_frame
-        return x - mx.log(mx.sum(mx.exp(x), axis=2, keepdims=True))
+        return self._forward_impl(input_waveform)
 
     def linear_head(self, features: Any) -> Any:
         import mlx.core as mx
 
         x = _dense(
             features,
-            self.reference_weights["linear.layers.0.weight"],
-            self.reference_weights["linear.layers.0.bias"],
+            self._dense_weight_transposes["linear.layers.0.weight_t"],
+            self._mx_weights["linear.layers.0.bias"],
         )
         x = _leaky_relu(x)
         x = _dense(
             x,
-            self.reference_weights["linear.layers.1.weight"],
-            self.reference_weights["linear.layers.1.bias"],
+            self._dense_weight_transposes["linear.layers.1.weight_t"],
+            self._mx_weights["linear.layers.1.bias"],
         )
         x = _leaky_relu(x)
         return _dense(
             x,
-            self.reference_weights["classifier.weight"],
-            self.reference_weights["classifier.bias"],
+            self._dense_weight_transposes["classifier.weight_t"],
+            self._mx_weights["classifier.bias"],
         )
 
     def write_candidate_npz(self, waveform: np.ndarray, path: str | Path) -> None:
@@ -359,10 +519,7 @@ class MlxPyanNetSegmentation:
         np.savez(path, output=np.asarray(output, dtype=np.float32))
 
 
-def _dense(x: Any, weight: np.ndarray, bias: np.ndarray) -> Any:
+def _dense(x: Any, weight: Any, bias: Any) -> Any:
     import mlx.core as mx
 
-    return mx.matmul(x, mx.array(weight.T, dtype=mx.float32)) + mx.array(
-        bias,
-        dtype=mx.float32,
-    )
+    return mx.matmul(x, weight) + bias
