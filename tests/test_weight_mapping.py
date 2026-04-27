@@ -28,16 +28,16 @@ def test_validate_weight_mapping_maps_all_required_weights() -> None:
     result = validate_weight_mapping(reference_weights, rules)
 
     assert result.mapped == {
-        "encoder.layer1.weight": "segmentation.encoder.layer1.weight",
-        "encoder.layer1.bias": "segmentation.encoder.layer1.bias",
+        "segmentation.encoder.layer1.weight": "encoder.layer1.weight",
+        "segmentation.encoder.layer1.bias": "encoder.layer1.bias",
     }
     assert result.missing_reference == []
     assert result.shape_mismatches == []
     assert result.passed is True
     assert result.to_dict() == {
         "mapped": {
-            "encoder.layer1.weight": "segmentation.encoder.layer1.weight",
-            "encoder.layer1.bias": "segmentation.encoder.layer1.bias",
+            "segmentation.encoder.layer1.weight": "encoder.layer1.weight",
+            "segmentation.encoder.layer1.bias": "encoder.layer1.bias",
         },
         "missingReference": [],
         "shapeMismatches": [],
@@ -65,7 +65,7 @@ def test_validate_weight_mapping_missing_reference_weight_fails() -> None:
     result = validate_weight_mapping(reference_weights, rules)
 
     assert result.mapped == {
-        "encoder.layer1.weight": "segmentation.encoder.layer1.weight",
+        "segmentation.encoder.layer1.weight": "encoder.layer1.weight",
     }
     assert result.missing_reference == ["encoder.layer1.bias"]
     assert result.shape_mismatches == []
@@ -127,4 +127,27 @@ def test_validate_weight_mapping_duplicate_candidate_keys_raise() -> None:
     ]
 
     with pytest.raises(ValueError, match="duplicate candidate key: dup"):
+        validate_weight_mapping(reference_weights, rules)
+
+
+def test_validate_weight_mapping_duplicate_reference_keys_raise() -> None:
+    reference_weights = {
+        "encoder.layer1.weight": np.zeros((2, 3), dtype=np.float32),
+    }
+    rules = [
+        MappingRule(
+            reference_key="encoder.layer1.weight",
+            candidate_key="segmentation.encoder.layer1.weight",
+            expected_shape=(2, 3),
+        ),
+        MappingRule(
+            reference_key="encoder.layer1.weight",
+            candidate_key="segmentation.encoder.layer1.weight.copy",
+            expected_shape=(2, 3),
+        ),
+    ]
+
+    with pytest.raises(
+        ValueError, match="duplicate reference key: encoder.layer1.weight"
+    ):
         validate_weight_mapping(reference_weights, rules)

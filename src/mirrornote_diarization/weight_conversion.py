@@ -42,7 +42,7 @@ def validate_weight_mapping(
     rules: Sequence[MappingRule],
 ) -> MappingResult:
     """Validate that all required reference weights can map to candidate keys."""
-    _reject_duplicate_candidate_keys(rules)
+    _reject_duplicate_keys(rules)
 
     mapped: dict[str, str] = {}
     missing_reference: list[str] = []
@@ -66,7 +66,7 @@ def validate_weight_mapping(
             )
             continue
 
-        mapped[rule.reference_key] = rule.candidate_key
+        mapped[rule.candidate_key] = rule.reference_key
 
     return MappingResult(
         mapped=mapped,
@@ -76,9 +76,15 @@ def validate_weight_mapping(
     )
 
 
-def _reject_duplicate_candidate_keys(rules: Sequence[MappingRule]) -> None:
-    seen: set[str] = set()
+def _reject_duplicate_keys(rules: Sequence[MappingRule]) -> None:
+    seen_reference_keys: set[str] = set()
+    seen_candidate_keys: set[str] = set()
+
     for rule in rules:
-        if rule.candidate_key in seen:
+        if rule.reference_key in seen_reference_keys:
+            raise ValueError(f"duplicate reference key: {rule.reference_key}")
+        seen_reference_keys.add(rule.reference_key)
+
+        if rule.candidate_key in seen_candidate_keys:
             raise ValueError(f"duplicate candidate key: {rule.candidate_key}")
-        seen.add(rule.candidate_key)
+        seen_candidate_keys.add(rule.candidate_key)
