@@ -153,6 +153,16 @@ def _bench_mlx(
     return summary
 
 
+def _coerce_lstm_backend(value: str | None) -> str:
+    if value is None:
+        return "metal"
+
+    normalized = value.strip().lower()
+    if normalized in {"metal", "nn", "legacy"}:
+        return normalized
+    raise ValueError(f"invalid lstm backend: {value!r}")
+
+
 def _bench_mlx_stages(
     model: Any,
     input_waveform: Any,
@@ -378,6 +388,12 @@ def main() -> int:
         action="store_true",
         help="When profiling stages, keep model compilation enabled and profile compiled kernels",
     )
+    parser.add_argument(
+        "--lstm-backend",
+        choices=("metal", "nn", "legacy"),
+        default=None,
+        help="Override LSTM backend for MLX (`metal`, `nn`, or `legacy`)",
+    )
     parser.add_argument("--no-pyannote", action="store_true")
     args = parser.parse_args()
 
@@ -389,6 +405,9 @@ def main() -> int:
         duration_seconds=10.0,
     ).as_model_input()
 
+    lstm_backend = _coerce_lstm_backend(args.lstm_backend)
+    os.environ["PYANNOTE_MLX_LSTM_BACKEND"] = lstm_backend
+
     summary: dict[str, Any] = {
         "audio": {
             "source": str(args.waveform),
@@ -397,6 +416,7 @@ def main() -> int:
         },
         "runs": args.runs,
         "warmup": args.warmup,
+        "lstmBackend": lstm_backend,
         "providers": [],
     }
 

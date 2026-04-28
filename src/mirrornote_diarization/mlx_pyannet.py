@@ -19,6 +19,7 @@ from mirrornote_diarization.weight_conversion import (
     build_pyannet_mapping_rules,
     validate_weight_mapping,
 )
+from mirrornote_diarization.lstm_metal import lstm_bidirectional
 
 PYANNET_EXPECTED_WAVEFORM_SHAPE = (1, 1, 160000)
 _INSTANCE_NORM_EPSILON = 1e-5
@@ -136,18 +137,24 @@ def _max_pool1d(x: Any, kernel_size: int, stride: int) -> Any:
     if x.ndim != 3:
         raise ValueError(f"expected (batch, time, channels) for max pool, got {tuple(x.shape)}")
 
-    x_len = int(x.shape[1])
+    batch, x_len, channels = int(x.shape[0]), int(x.shape[1]), int(x.shape[2])
     output_len = (x_len - kernel_size) // stride + 1
+
     if kernel_size == stride and x_len % kernel_size == 0:
         trimmed = x[:, : output_len * kernel_size, :]
-        reshaped = trimmed.reshape(int(x.shape[0]), output_len, kernel_size, int(x.shape[2]))
+        reshaped = trimmed.reshape(batch, output_len, kernel_size, channels)
         return mx.max(reshaped, axis=2)
 
-    pooled: list[Any] = []
-    for offset in range(0, output_len * stride, stride):
-        pooled.append(mx.max(x[:, offset : offset + kernel_size, :], axis=1))
+    pad_len = output_len * stride + kernel_size - stride - x_len
+    if pad_len > 0:
+        padding = mx.full((batch, pad_len, channels), mx.finfo(x.dtype).min, dtype=x.dtype)
+        x = mx.concatenate([x, padding], axis=1)
 
-    return mx.stack(pooled, axis=1)
+    indices = mx.arange(kernel_size).reshape(1, -1) + mx.arange(
+        0, output_len * stride, stride
+    ).reshape(-1, 1)
+    windows = x[:, indices, :]
+    return mx.max(windows, axis=2)
 
 
 def _instance_norm1d(x: Any, weight: Any, bias: Any) -> Any:
@@ -315,6 +322,7 @@ class MlxPyanNetSegmentation:
     _cached_sinc_filters: Any = field(default=None, init=False, repr=False)
     _fast_math: bool = field(default=False, init=False, repr=False)
     _use_fp16: bool = field(default=False, init=False, repr=False)
+    _metal_lstm: bool = field(default=False, init=False, repr=False)
 
     @classmethod
     def from_reference_weights(
@@ -414,29 +422,29 @@ class MlxPyanNetSegmentation:
                 for layer in range(4)
             ),
         )
-        use_mlx_lstm = os.getenv("PYANNOTE_MLX_LSTM_BACKEND", "nn").strip().lower() != "legacy"
+        lstm_backend_raw = os.getenv("PYANNOTE_MLX_LSTM_BACKEND", "metal").strip().lower()
+        use_mlx_lstm = lstm_backend_raw == "nn"
+        use_metal_lstm = lstm_backend_raw == "metal"
         object.__setattr__(model, "_use_mlx_lstm", use_mlx_lstm)
+        object.__setattr__(model, "_metal_lstm", use_metal_lstm)
         if use_mlx_lstm:
-            try:
-                import mlx.nn as nn
+            import mlx.nn as nn
 
-                lstm_modules = []
-                for forward_weights, reverse_weights in model._lstm_specs:
-                    in_dim = int(forward_weights[0].shape[1])
-                    hidden_size = int(forward_weights[0].shape[0] // 4)
-                    forward_module = nn.LSTM(input_size=in_dim, hidden_size=hidden_size, bias=True)
-                    reverse_module = nn.LSTM(input_size=in_dim, hidden_size=hidden_size, bias=True)
-                    forward_module.Wx = forward_weights[0]
-                    forward_module.Wh = forward_weights[1]
-                    forward_module.bias = forward_weights[2] + forward_weights[3]
-                    reverse_module.Wx = reverse_weights[0]
-                    reverse_module.Wh = reverse_weights[1]
-                    reverse_module.bias = reverse_weights[2] + reverse_weights[3]
-                    lstm_modules.append((forward_module, reverse_module))
+            lstm_modules = []
+            for forward_weights, reverse_weights in model._lstm_specs:
+                in_dim = int(forward_weights[0].shape[1])
+                hidden_size = int(forward_weights[0].shape[0] // 4)
+                forward_module = nn.LSTM(input_size=in_dim, hidden_size=hidden_size, bias=True)
+                reverse_module = nn.LSTM(input_size=in_dim, hidden_size=hidden_size, bias=True)
+                forward_module.Wx = forward_weights[0]
+                forward_module.Wh = forward_weights[1]
+                forward_module.bias = forward_weights[2] + forward_weights[3]
+                reverse_module.Wx = reverse_weights[0]
+                reverse_module.Wh = reverse_weights[1]
+                reverse_module.bias = reverse_weights[2] + reverse_weights[3]
+                lstm_modules.append((forward_module, reverse_module))
 
-                object.__setattr__(model, "_lstm_modules", tuple(lstm_modules))
-            except Exception:  # pragma: no cover - fallback when nn path unavailable in current runtime
-                object.__setattr__(model, "_use_mlx_lstm", False)
+            object.__setattr__(model, "_lstm_modules", tuple(lstm_modules))
         object.__setattr__(
             model,
             "_cached_sinc_filters",
@@ -486,6 +494,8 @@ class MlxPyanNetSegmentation:
 
     @property
     def _lstm_backend_name(self) -> str:
+        if self._metal_lstm:
+            return "metal"
         return "nn" if self._use_mlx_lstm else "manual"
 
     def _sincnet(self, waveform: Any) -> Any:
@@ -532,7 +542,19 @@ class MlxPyanNetSegmentation:
     def _lstm(self, features: Any) -> Any:
         outputs = features
         for layer in range(4):
-            if self._use_mlx_lstm:
+            if self._metal_lstm:
+                fwd_w_ih, fwd_w_hh, fwd_b_ih, fwd_b_hh = self._lstm_specs[layer][0]
+                rev_w_ih, rev_w_hh, rev_b_ih, rev_b_hh = self._lstm_specs[layer][1]
+                seq_len = int(outputs.shape[1])
+                hidden = int(fwd_w_ih.shape[0] // 4)
+                outputs = lstm_bidirectional(
+                    outputs,
+                    fwd_w_ih, fwd_w_hh, fwd_b_ih, fwd_b_hh,
+                    rev_w_ih, rev_w_hh, rev_b_ih, rev_b_hh,
+                    seq_len=seq_len,
+                    hidden=hidden,
+                )
+            elif self._use_mlx_lstm:
                 outputs = _lstm_bidirectional_layer_nn(
                     outputs,
                     lstm_modules=self._lstm_modules[layer],
