@@ -1,5 +1,10 @@
 # MirrorNote Diarization MLX
 
+> 🧠 **AI-Agent Developed** — The performance optimizations in this project
+> (Metal threadgroup-parallel LSTM kernel, max-pool vectorization) were
+> iteratively designed, implemented, and benchmarked by Agent. See [Optimization history](#optimization-history)
+> for the full progression from 189ms → 31.6ms.
+
 Local speaker diarization experiments for MirrorNote.
 
 This repository starts with an oracle-first path: run `pyannote/speaker-diarization-3.1` as the reference implementation, normalize its output into MirrorNote's artifact contract, and only then port the proven path to MLX.
@@ -188,3 +193,12 @@ Result files:
 The breakthrough came from writing a custom **threadgroup-parallel Metal kernel** (`src/mirrornote_diarization/lstm_metal.py`) that processes the LSTM recurrence with 128 GPU threads over the hidden dimension, synchronized via threadgroup barriers between timesteps. This eliminates the Python-level loop overhead that limited both `nn.LSTM` and the manual implementation.
 
 PyTorch MPS (56ms) relies on Apple's MPSGraph native LSTM kernel. MLX 0.31.2 does not ship an equivalent, but `mx.fast.metal_kernel` allowed us to write one — and the custom kernel turned out faster than MPSGraph for this model size (batch=1, hidden=128, 589 timesteps).
+
+---
+
+## Built With
+
+- **Agent** — performance optimization, Metal kernel authoring, benchmarking
+- **MLX 0.31.2** — Apple Silicon array framework, `mx.fast.metal_kernel`
+- **PyTorch + pyannote.audio 3.1** — reference oracle implementation
+- **Python 3.12** — uv-managed project
